@@ -3,10 +3,12 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 using System.Runtime.InteropServices;
+using UnityEngine.VFX;
 
 public class LbmSwimmer2D : MonoBehaviour
 {
     public Image plotImage;
+    public Image particleImage;
     public int DIM_X;
     public int DIM_Y;
     public float pr = 0.71f;
@@ -30,8 +32,9 @@ public class LbmSwimmer2D : MonoBehaviour
     public float squirmerBeta = 0f;
     public float squirmerSpeedConstant = 0.001f;
     Texture2D plotTexture;
+    Texture2D particleTexture;
     RenderTexture renderTexture;
-    int init,collisions,streaming,boundaries,plotSpeed,immersedBoundary,initRoundParticles;
+    int init,collisions,streaming,boundaries,plotSpeed,immersedBoundary,initRoundParticles,plotParticle;
     ComputeBuffer uv,f,force;
     ComputeBuffer roundParticleSmallDataBuffer;
     ComputeBuffer roundParticleRoundParticlePerimeterPosBuffer;
@@ -43,6 +46,9 @@ public class LbmSwimmer2D : MonoBehaviour
 
     Vector2[] debugFluidVel;
     RoundParticleSmallData[] debugSmallData;
+
+    public VisualEffect vfx;
+    GraphicsBuffer velocityGraphicsBuffer;
     void OnDestroy()
     {
         uv.Dispose();
@@ -61,6 +67,8 @@ public class LbmSwimmer2D : MonoBehaviour
     // Start is called before the first frame update
     void Start()
     {
+        velocityGraphicsBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, DIM_X*DIM_Y, sizeof(float)*2);
+        vfx.SetGraphicsBuffer("VelocityBuffer",velocityGraphicsBuffer);
         int particlePerimeterCount = (int)(2f * Mathf.PI * particleRadius * 2f);
 
         debugSmallData = new RoundParticleSmallData[particleCount];
@@ -70,6 +78,12 @@ public class LbmSwimmer2D : MonoBehaviour
         plotTexture.filterMode = FilterMode.Point;
         plotImage.sprite = Sprite.Create(plotTexture, new Rect(0,0,DIM_X,DIM_Y),UnityEngine.Vector2.zero);
         ((RectTransform)plotImage.transform).sizeDelta = new Vector2(DIM_X*1080/DIM_Y,1080);
+
+        particleTexture = new Texture2D(DIM_X,DIM_Y);
+        // particleTexture.filterMode = FilterMode.Point;
+        particleImage.sprite = Sprite.Create(particleTexture, new Rect(0,0,DIM_X,DIM_Y),UnityEngine.Vector2.zero);
+        ((RectTransform)particleImage.transform).sizeDelta = new Vector2(DIM_X*1080/DIM_Y,1080);
+
         renderTexture = new RenderTexture(DIM_X,DIM_Y,24);
         renderTexture.enableRandomWrite = true;
 
@@ -113,7 +127,8 @@ public class LbmSwimmer2D : MonoBehaviour
         float dist = 3 * particleRadius; 
         for(int i = 0; i < particleCount; i++)
         {
-            particleInitPos[i] = new Vector2(DIM_X/2 - dist*particleCount/2 + dist*i,DIM_Y/2);
+            // particleInitPos[i] = new Vector2(DIM_X/2 - dist*particleCount/2 + dist*i,DIM_Y/2);
+            particleInitPos[i] = new Vector2(Random.Range(0f,DIM_X),Random.Range(0f,DIM_Y));
         }
         roundParticleInitPosBuffer.SetData(particleInitPos);
 
@@ -136,6 +151,7 @@ public class LbmSwimmer2D : MonoBehaviour
         compute.SetTexture(plotSpeed,"renderTexture",renderTexture);
 
         collisions = compute.FindKernel("Collisions");
+        compute.SetBuffer(collisions,"velocityBuffer",velocityGraphicsBuffer);
         compute.SetBuffer(collisions,"f",f);
         compute.SetBuffer(collisions,"uv",uv);
         compute.SetBuffer(collisions,"force",force);
@@ -146,13 +162,20 @@ public class LbmSwimmer2D : MonoBehaviour
         boundaries = compute.FindKernel("Boundaries");
         compute.SetBuffer(boundaries,"f",f);
 
+        plotParticle = compute.FindKernel("PlotParticle");
+        compute.SetTexture(plotParticle,"renderTexture",renderTexture);
+        compute.SetBuffer(plotParticle,"roundParticleSmallDataBuffer",roundParticleSmallDataBuffer);
+
         compute.Dispatch(init,(DIM_X+7)/8,(DIM_Y+7)/8,1);
         compute.Dispatch(initRoundParticles,(particleCount+63)/64,1,1);
         compute.Dispatch(plotSpeed,(DIM_X+7)/8,(DIM_Y+7)/8,1);
-
         RenderTexture.active = renderTexture;
         plotTexture.ReadPixels(new Rect(0, 0, renderTexture.width, renderTexture.height), 0, 0);
         plotTexture.Apply();
+        compute.Dispatch(plotParticle,(DIM_X+7)/8,(DIM_Y+7)/8,1);
+        RenderTexture.active = renderTexture;
+        particleTexture.ReadPixels(new Rect(0, 0, renderTexture.width, renderTexture.height), 0, 0);
+        particleTexture.Apply();
         // compute.Dispatch(plotTemperature,(DIM_X+7)/8,(DIM_Y+7)/8,1);
 
         // RenderTexture.active = renderTexture;
@@ -198,12 +221,14 @@ public class LbmSwimmer2D : MonoBehaviour
                 compute.Dispatch(immersedBoundary,(particleCount+63)/64,1,1);
             }
         }
-        
         compute.Dispatch(plotSpeed,(DIM_X+7)/8,(DIM_Y+7)/8,1);
-
         RenderTexture.active = renderTexture;
         plotTexture.ReadPixels(new Rect(0, 0, renderTexture.width, renderTexture.height), 0, 0);
         plotTexture.Apply();
+        compute.Dispatch(plotParticle,(DIM_X+7)/8,(DIM_Y+7)/8,1);
+        RenderTexture.active = renderTexture;
+        particleTexture.ReadPixels(new Rect(0, 0, renderTexture.width, renderTexture.height), 0, 0);
+        particleTexture.Apply();
         
     }
 
