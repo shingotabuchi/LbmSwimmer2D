@@ -101,7 +101,7 @@ public class RoundParticle
             pixels[(int)perimeterPos.perimeterPos[0 + 2*i] + (int)perimeterPos.perimeterPos[1 + 2*i] * dim_x] = (Color)color;
         }
     }
-        public void UpdatePosVel(float[]? gravity = null)
+    public void UpdatePosVel(float[]? gravity = null)
     {
         gravity ??= new float[2]{0f,0f};
         for (int i = 0; i < 2; i++)
@@ -166,36 +166,6 @@ public class RoundParticle
         } 
     }
 
-    public void UpdateRadius(float newRad)
-    {
-        smallData.radius = newRad;
-        smallData.volume = Mathf.PI*smallData.radius*smallData.radius;
-        smallData.mass = smallData.volume * smallData.density;
-        smallData.momentOfInertia = (Mathf.PI * smallData.radius*smallData.radius*smallData.radius*smallData.radius * smallData.density)/2f;
-        int newperimeterPointCount = (int)(2.0f * Mathf.PI * smallData.radius * 2.0f);
-        perimeterPos.perimeterPos = new float[newperimeterPointCount*2];
-        perimeterVel.perimeterVel = new float[newperimeterPointCount*2];
-        float[] newperimeterFluidVel = new float[newperimeterPointCount*2];
-        float[] newforceOnPerimeter = new float[newperimeterPointCount*2];
-        for(int i = 0; i < newperimeterPointCount; i++) 
-        {
-            float angle = (3f*Mathf.PI)/2f + 2.0f*Mathf.PI*(float)i/(float)newperimeterPointCount + smallData.theta;
-
-            perimeterPos.perimeterPos[0 + 2*i] = smallData.pos[0] + smallData.radius * Mathf.Cos(angle);
-            perimeterPos.perimeterPos[1 + 2*i] = smallData.pos[1] + smallData.radius * Mathf.Sin(angle);
-            perimeterVel.perimeterVel[0 + 2*i] = smallData.vel[0] - smallData.omega*(perimeterPos.perimeterPos[1 + 2*i] - smallData.pos[1]);
-            perimeterVel.perimeterVel[1 + 2*i] = smallData.vel[1] + smallData.omega*(perimeterPos.perimeterPos[0 + 2*i] - smallData.pos[0]);
-            newperimeterFluidVel[0 + 2*i] = perimeterFluidVel.perimeterFluidVel[(int)(((float)i*smallData.perimeterPointCount)/(float)newperimeterPointCount)*2 + 0];
-            newperimeterFluidVel[1 + 2*i] = perimeterFluidVel.perimeterFluidVel[(int)(((float)i*smallData.perimeterPointCount)/(float)newperimeterPointCount)*2 + 1];
-            newforceOnPerimeter[0 + 2*i] = forceOnPerimeter.forceOnPerimeter[(int)(((float)i*smallData.perimeterPointCount)/(float)newperimeterPointCount)*2 + 0];
-            newforceOnPerimeter[1 + 2*i] = forceOnPerimeter.forceOnPerimeter[(int)(((float)i*smallData.perimeterPointCount)/(float)newperimeterPointCount)*2 + 1];
-        } 
-        smallData.perimeterPointCount = newperimeterPointCount;
-        forceOnPerimeter.forceOnPerimeter = newforceOnPerimeter;
-        perimeterFluidVel.perimeterFluidVel = newperimeterFluidVel;
-    }
-
-    
     public void PlotParticleFill(ref Color[] pixels, int dim_x, Color? color = null)
     {
         color ??= Color.white;
@@ -214,38 +184,6 @@ public class RoundParticle
                 }
             }
         }
-    }
-
-    public void UpdatePosVelPeriodicX(int DIM_X)
-    {
-        for (int i = 0; i < 2; i++)
-        {
-            smallData.vel[i] = (1f + 1f/smallData.density) * smallData.prevVel1[i]
-                                    - 1f/smallData.density * smallData.prevVel2[i]
-                                    + (smallData.forceFromFluid[i] + smallData.forceFromCollisions[i])/smallData.mass;
-                                    // + (1f - 1f/smallData.density) * gravity[i];
-            smallData.pos[i] += (smallData.vel[i] + smallData.prevVel1[i])/2f;
-            if(i==0)
-            {
-                if(smallData.pos[i]>=DIM_X) smallData.pos[i]-=DIM_X;
-                else if(smallData.pos[i]<0) smallData.pos[i]+=DIM_X;
-            }
-            smallData.prevVel2[i] = smallData.prevVel1[i];
-            smallData.prevVel1[i] = smallData.vel[i];
-        }
-    }
-
-    public void UpdatePerimeterPeriodicX(int DIM_X)
-    {
-        for(int i = 0; i < smallData.perimeterPointCount; i++) 
-        {
-            perimeterPos.perimeterPos[0 + 2*i] = smallData.pos[0] + smallData.radius * Mathf.Cos(2.0f*Mathf.PI*(float)i/(float)smallData.perimeterPointCount);
-            if(perimeterPos.perimeterPos[0 + 2*i]>=DIM_X) perimeterPos.perimeterPos[0 + 2*i]-=DIM_X;
-            else if(perimeterPos.perimeterPos[0 + 2*i]<0) perimeterPos.perimeterPos[0 + 2*i]+=DIM_X;
-            perimeterPos.perimeterPos[1 + 2*i] = smallData.pos[1] + smallData.radius * Mathf.Sin(2.0f*Mathf.PI*(float)i/(float)smallData.perimeterPointCount);
-            perimeterVel.perimeterVel[0 + 2*i] = smallData.vel[0] - smallData.omega*(perimeterPos.perimeterPos[1 + 2*i] - smallData.pos[1]);
-            perimeterVel.perimeterVel[1 + 2*i] = smallData.vel[1] + smallData.omega*(perimeterPos.perimeterPos[0 + 2*i] - smallData.pos[0]);
-        } 
     }
 
     public void UpdatePerimeter()

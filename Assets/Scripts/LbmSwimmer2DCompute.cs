@@ -12,22 +12,22 @@ public class LbmSwimmer2DCompute : MonoBehaviour
     ColorHeatMap colorHeatMap = new ColorHeatMap();
     public bool fixHeatMapMax;
     public bool fixHeatMapMin;
-    public float fixedMaxSpeed = 0.6f;
+    public float maxSpeed = 0.6f;
     public float fixedMaxRho = 1.01f;
-    public float fixedMinSpeed = 0f;
+    public float minSpeed = 0f;
     public float fixedMinRho = 0f;
     public int DIM_X = 100;
     public int DIM_Y = 100;
     public int particleCount = 1;
 
     public float maxRho,minRho;
-    public float maxSpeed,minSpeed;
+    // public float maxSpeed,minSpeed;
 
     float[] cx = new float[9]{0, 1,    0,   -1,    0,     1,    -1,    -1,     1};
     float[] cy = new float[9]{0, 0,    1,    0,   -1,     1,     1,    -1,    -1};
     float[] w = new float[9]{4f/9f,1f/9f,1f/9f,1f/9f,1f/9f,1f/36f,1f/36f,1f/36f,1f/36f};
     float[] rho, u, v, speed, fx ,fy;
-    float[] f, f0, ftmp;
+    // float[] f, f0, ftmp;
     float tmp,u2,nu,tmp1, tmp2, tmp3,dt;
     public float particleDensity = 1.25f;
     public float particleRadius;
@@ -40,12 +40,30 @@ public class LbmSwimmer2DCompute : MonoBehaviour
     RoundParticle[] roundParticles;
 
     public ComputeShader compute;
+    int init;
+    int collisions;
+    int streaming;
+    int boundaries;
+    int plotSpeed;
     int immersedBoundary;
+
+    ComputeBuffer uv,f;
     ComputeBuffer roundParticlesSmallDataBuffer;
     ComputeBuffer roundParticleRoundParticlePerimeterPosBuffer;
     ComputeBuffer roundParticleRoundParticlePerimeterVelBuffer;
     ComputeBuffer roundParticleRoundParticlePerimeterFluidVelBuffer;
     ComputeBuffer roundParticleRoundParticleForceOnPerimeterBuffer;
+    void OnDestroy()
+    {
+        uv.Dispose();
+        f.Dispose();
+        roundParticlesSmallDataBuffer.Dispose();
+        roundParticleRoundParticlePerimeterPosBuffer.Dispose();
+        roundParticleRoundParticlePerimeterVelBuffer.Dispose();
+        roundParticleRoundParticlePerimeterFluidVelBuffer.Dispose();
+        roundParticleRoundParticleForceOnPerimeterBuffer.Dispose();
+    }
+    RenderTexture renderTexture;
     // Start is called before the first frame update
     void Start()
     {
@@ -69,198 +87,240 @@ public class LbmSwimmer2DCompute : MonoBehaviour
         plotPixels = plotTexture.GetPixels();
         plotImage.sprite = Sprite.Create(plotTexture, new Rect(0,0,DIM_X,DIM_Y),UnityEngine.Vector2.zero);
         ((RectTransform)plotImage.transform).sizeDelta = new Vector2(1080 * (float)DIM_X/(float)DIM_Y,1080);
-        
-        speed = new float[DIM_X*DIM_Y];
-        u = new float[DIM_X*DIM_Y];
-        v = new float[DIM_X*DIM_Y];
-        fx = new float[DIM_X*DIM_Y];
-        fy = new float[DIM_X*DIM_Y];
-        rho = new float[DIM_X*DIM_Y];
-        f = new float[9*DIM_X*DIM_Y];
-        f0 = new float[9*DIM_X*DIM_Y];
-        ftmp = new float[9*DIM_X*DIM_Y];
+        renderTexture = new RenderTexture(DIM_X,DIM_Y,24);
+        renderTexture.enableRandomWrite = true;
+        uv = new ComputeBuffer(DIM_X*DIM_Y*2,sizeof(float));
+        f = new ComputeBuffer(9*DIM_X*DIM_Y*2,sizeof(float));
 
-        nu = (tau - 0.5f)/3.0f;
+        compute.SetInt("DIM_X",DIM_X);
+        compute.SetInt("DIM_Y",DIM_Y);
+        compute.SetFloat("minSpeed",minSpeed);
+        compute.SetFloat("maxSpeed",maxSpeed);
+        compute.SetFloat("tau",tau);
 
-        dt = nu/((float)DIM_X/2.0f)/((float)DIM_X/2.0f)/0.1f;
-        gravity[1] = -981.0f/2.0f*(float)(DIM_X)*dt*dt;
-        gravity[0] = 0.0f;
-        roundParticles = new RoundParticle[particleCount];
+        init = compute.FindKernel("Init");
+        compute.SetBuffer(init,"uv",uv);
+        compute.SetBuffer(init,"f",f);
 
-        for (int n = 0; n < particleCount; n++)
-        {
-            roundParticles[n] = new RoundParticle(particleDensity,particleRadius,new float[2]{DIM_X/2,DIM_Y/2});
-        }
-        maxSpeed = 0f;
-        minSpeed = Mathf.Infinity;
-        maxRho = 0f;
-        minRho = Mathf.Infinity;
-        for(int i = 0; i < DIM_X; i++)
-        { 
-            for(int j = 0; j < DIM_Y; j++)
-            {
-                u[i + DIM_X*j] = 0f; v[i + DIM_X*j] = 0.0f;
-                fx[i + DIM_X*j] = 0.0f; fy[i + DIM_X*j] = 0.0f;
-                rho[i + DIM_X*j] = 1.0f;
-                u2 = u[i + DIM_X*j]*u[i + DIM_X*j] + v[i + DIM_X*j]*v[i + DIM_X*j];  
-                for (int k = 0; k < 9; k++)
-                {
-                    tmp = cx[k]*u[i + DIM_X*j] + cy[k]*v[i + DIM_X*j];  
-                    f0[k + 9*(i + DIM_X*j)] = w[k]*rho[i + DIM_X*j]*(1.0f +3.0f*tmp +9.0f/2.0f*tmp*tmp -3.0f/2.0f*u2);
-                    f[k + 9*(i + DIM_X*j)] = f0[k + 9*(i + DIM_X*j)];
-                }
-                speed[i + DIM_X*j] = Mathf.Sqrt(u2);
-                maxSpeed = Mathf.Max(maxSpeed,speed[i + DIM_X*j]);
-                minSpeed = Mathf.Min(minSpeed,speed[i + DIM_X*j]);
-                maxRho = Mathf.Max(maxRho,rho[i + DIM_X*j]);
-                maxRho = Mathf.Min(maxRho,rho[i + DIM_X*j]);
-            } 
-        }
+        plotSpeed = compute.FindKernel("PlotSpeed");
+        compute.SetBuffer(plotSpeed,"uv",uv);
+        compute.SetTexture(plotSpeed,"renderTexture",renderTexture);
+
+        collisions = compute.FindKernel("Collisions");
+        compute.SetBuffer(collisions,"f",f);
+        compute.SetBuffer(collisions,"uv",uv);
+
+        streaming = compute.FindKernel("Streaming");
+        compute.SetBuffer(streaming,"f",f);
+
+        boundaries = compute.FindKernel("Boundaries");
+        compute.SetBuffer(boundaries,"f",f);
+
+        compute.Dispatch(init,(DIM_X+7)/8,(DIM_Y+7)/8,1);
+
+
+        // speed = new float[DIM_X*DIM_Y];
+        // u = new float[DIM_X*DIM_Y];
+        // v = new float[DIM_X*DIM_Y];
+        // fx = new float[DIM_X*DIM_Y];
+        // fy = new float[DIM_X*DIM_Y];
+        // rho = new float[DIM_X*DIM_Y];
+        // f = new float[9*DIM_X*DIM_Y];
+        // f0 = new float[9*DIM_X*DIM_Y];
+        // ftmp = new float[9*DIM_X*DIM_Y];
+
+        // nu = (tau - 0.5f)/3.0f;
+
+        // dt = nu/((float)DIM_X/2.0f)/((float)DIM_X/2.0f)/0.1f;
+        // gravity[1] = -981.0f/2.0f*(float)(DIM_X)*dt*dt;
+        // gravity[0] = 0.0f;
+        // roundParticles = new RoundParticle[particleCount];
+
+        // for (int n = 0; n < particleCount; n++)
+        // {
+        //     roundParticles[n] = new RoundParticle(particleDensity,particleRadius,new float[2]{DIM_X/2,DIM_Y/2});
+        // }
+        // maxSpeed = 0f;
+        // minSpeed = Mathf.Infinity;
+        // maxRho = 0f;
+        // minRho = Mathf.Infinity;
+        // for(int i = 0; i < DIM_X; i++)
+        // { 
+        //     for(int j = 0; j < DIM_Y; j++)
+        //     {
+        //         u[i + DIM_X*j] = 0f; v[i + DIM_X*j] = 0.0f;
+        //         fx[i + DIM_X*j] = 0.0f; fy[i + DIM_X*j] = 0.0f;
+        //         rho[i + DIM_X*j] = 1.0f;
+        //         u2 = u[i + DIM_X*j]*u[i + DIM_X*j] + v[i + DIM_X*j]*v[i + DIM_X*j];  
+        //         for (int k = 0; k < 9; k++)
+        //         {
+        //             tmp = cx[k]*u[i + DIM_X*j] + cy[k]*v[i + DIM_X*j];  
+        //             f0[k + 9*(i + DIM_X*j)] = w[k]*rho[i + DIM_X*j]*(1.0f +3.0f*tmp +9.0f/2.0f*tmp*tmp -3.0f/2.0f*u2);
+        //             f[k + 9*(i + DIM_X*j)] = f0[k + 9*(i + DIM_X*j)];
+        //         }
+        //         speed[i + DIM_X*j] = Mathf.Sqrt(u2);
+        //         maxSpeed = Mathf.Max(maxSpeed,speed[i + DIM_X*j]);
+        //         minSpeed = Mathf.Min(minSpeed,speed[i + DIM_X*j]);
+        //         maxRho = Mathf.Max(maxRho,rho[i + DIM_X*j]);
+        //         maxRho = Mathf.Min(maxRho,rho[i + DIM_X*j]);
+        //     } 
+        // }
     }
 
-    void LBMStep()
-    {
-        Collision();
-        Streaming();
-        BouncebackBoundaries();
-        UpdateSpeedAndDensity();
+    // void LBMStep()
+    // {
+    //     Collision();
+    //     Streaming();
+    //     BouncebackBoundaries();
+    //     UpdateSpeedAndDensity();
 
-        // roundParticlesBuffer.SetData(roundParticles);
-        // roundParticlesSmallDataBuffer.SetData(new RoundParticleSmallData[1]{roundParticles[0].smallData});
-        // roundParticleRoundParticlePerimeterPosBuffer.SetData(new RoundParticlePerimeterPos[1]{roundParticles[0].perimeterPos});
-        // roundParticleRoundParticlePerimeterVelBuffer.SetData(new RoundParticlePerimeterVel[1]{roundParticles[0].perimeterVel});
-        // roundParticleRoundParticlePerimeterFluidVelBuffer.SetData(new RoundParticlePerimeterFluidVel[1]{roundParticles[0].perimeterFluidVel});
-        // roundParticleRoundParticleForceOnPerimeterBuffer.SetData(new RoundParticleForceOnPerimeter[1]{roundParticles[0].forceOnPerimeter});
-        ImmersedBoundary();
-    }
+    //     // roundParticlesBuffer.SetData(roundParticles);
+    //     // roundParticlesSmallDataBuffer.SetData(new RoundParticleSmallData[1]{roundParticles[0].smallData});
+    //     // roundParticleRoundParticlePerimeterPosBuffer.SetData(new RoundParticlePerimeterPos[1]{roundParticles[0].perimeterPos});
+    //     // roundParticleRoundParticlePerimeterVelBuffer.SetData(new RoundParticlePerimeterVel[1]{roundParticles[0].perimeterVel});
+    //     // roundParticleRoundParticlePerimeterFluidVelBuffer.SetData(new RoundParticlePerimeterFluidVel[1]{roundParticles[0].perimeterFluidVel});
+    //     // roundParticleRoundParticleForceOnPerimeterBuffer.SetData(new RoundParticleForceOnPerimeter[1]{roundParticles[0].forceOnPerimeter});
+    //     // ImmersedBoundary();
+    // }
 
     // Update is called once per frame
     void Update()
     {
         for (int i = 0; i < loopCount; i++)
         {
-            LBMStep();
+            compute.Dispatch(collisions,(DIM_X+7)/8,(DIM_Y+7)/8,1);
+            compute.Dispatch(streaming,(DIM_X+7)/8,(DIM_Y+7)/8,1);
+            int DIM = Mathf.Max(DIM_X,DIM_Y);
+            compute.Dispatch(boundaries,(DIM+63)/64,1,1);
         }
-        UpdatePlot();
-    }
-
-    void UpdatePlot()
-    {
-        if(maxSpeed == 0f)maxSpeed = 1f;
-        if(fixHeatMapMax)
-        {
-            maxSpeed = fixedMaxSpeed;
-        }
-        if(fixHeatMapMin)
-        {
-            minSpeed = fixedMinSpeed;
-        }
-        for (int i = 0; i < plotPixels.Length; i++)
-        {
-            plotPixels[i] = colorHeatMap.GetColorForValue(speed[i%DIM_X + (i/DIM_X)*DIM_X]-minSpeed,maxSpeed-minSpeed);
-        }
-        // for (int n = 0; n < particleCount; n++)
-        // {
-        //     roundParticles[n].PlotParticleFill(ref plotPixels,DIM_X);
-        // }
-        plotTexture.SetPixels(plotPixels);
+        compute.Dispatch(plotSpeed,(DIM_X+7)/8,(DIM_Y+7)/8,1);
+        RenderTexture.active = renderTexture;
+        plotTexture.ReadPixels(new Rect(0, 0, renderTexture.width, renderTexture.height), 0, 0);
         plotTexture.Apply();
-    }
-
-    void Collision()
-    {
-        for(int i = 0; i < DIM_X; i++)
-        { 
-            for(int j = 0; j < DIM_Y; j++)
-            {
-                u2 = u[i + DIM_X*j]*u[i + DIM_X*j] + v[i + DIM_X*j]*v[i + DIM_X*j];  
-                for (int k = 0; k < 9; k++)
-                {
-                    tmp = cx[k]*u[i + DIM_X*j] + cy[k]*v[i + DIM_X*j];  
-                    f0[k + 9*(i + DIM_X*j)] = w[k]*rho[i + DIM_X*j]*(1.0f +3.0f*tmp +9.0f/2.0f*tmp*tmp -3.0f/2.0f*u2);
-                    f[k + 9*(i + DIM_X*j)] = f[k + 9*(i + DIM_X*j)] - (f[k + 9*(i + DIM_X*j)] - f0[k + 9*(i + DIM_X*j)])/tau + 3f*w[k]*(fx[i + DIM_X*j]*cx[k] + fy[i + DIM_X*j]*cy[k]);
-                }
-                // reset force;
-                fx[i + DIM_X*j] = 0.0f;
-                fy[i + DIM_X*j] = 0.0f;
-            }   
-        }
-    }
-
-    void Streaming()
-    {
-        ftmp = (float[])(f.Clone());
-
-        for(int i = 0; i < DIM_X; i++)
-        { 
-            for(int j = 0; j < DIM_Y; j++)
-            { 
-                for(int k = 0; k < 9; k++)
-                {
-                    // periodic boundary
-                    int im = (i + (int)cx[k] + DIM_X)%DIM_X; 
-                    int jm = (j + (int)cy[k] + DIM_Y)%DIM_Y;
-                    // int im = i + (int)cx[k]; 
-                    // int jm = j + (int)cy[k];
-                    if((jm!=DIM_Y&&jm!=-1) && (im!=DIM_X&&im!=-1))
-                    {
-                        f[k + 9*(im + DIM_X*jm)] = ftmp[k + 9*(i + DIM_X*j)];
-                    }
-                } 
-            }
-        }
-    }
-
-    void BouncebackBoundaries()
-    {
-        // for (int i = 0; i < DIM_X; i++)
+        // for (int i = 0; i < loopCount; i++)
         // {
-        //     f[4,i,DIM_Y-1] = f[2,i,DIM_Y-1];
-        //     f[7,i,DIM_Y-1] = f[5,i,DIM_Y-1];
-        //     f[8,i,DIM_Y-1] = f[6,i,DIM_Y-1]; 
-        //     f[2,i,0] = f[4,i,0]; 
-        //     f[5,i,0] = f[7,i,0]; 
-        //     f[6,i,0] = f[8,i,0]; 
+        //     LBMStep();
         // }
-        // for (int j = 0; j < DIM_Y; j++)
-        // {
-        //     f[3,DIM_X-1,j] = f[1,DIM_X-1,j];
-        //     f[6,DIM_X-1,j] = f[8,DIM_X-1,j];
-        //     f[7,DIM_X-1,j] = f[5,DIM_X-1,j];
-        //     f[1,0,j] = f[3,0,j]; 
-        //     f[5,0,j] = f[7,0,j]; 
-        //     f[8,0,j] = f[6,0,j]; 
-        // }
+        // UpdatePlot();
     }
 
-    void UpdateSpeedAndDensity()
-    {
-        maxSpeed = 0f;
-        minSpeed = Mathf.Infinity;
-        maxRho = 0f;
-        minRho = Mathf.Infinity;
-        for(int i = 0; i < DIM_X; i++)
-        { 
-            for(int j = 0; j < DIM_Y; j++)
-            {
-                rho[i + DIM_X*j] = f[0 + 9*(i + DIM_X*j)]; 
-                u[i + DIM_X*j] = 0; v[i + DIM_X*j] = 0;
-                for(int k = 1; k <= 8; k++)
-                {
-                    rho[i + DIM_X*j] = rho[i + DIM_X*j] + f[k + 9*(i + DIM_X*j)];
-                    u[i + DIM_X*j] =   u[i + DIM_X*j] + f[k + 9*(i + DIM_X*j)]*cx[k];
-                    v[i + DIM_X*j] =   v[i + DIM_X*j] + f[k + 9*(i + DIM_X*j)]*cy[k];
-                } 
-                u[i + DIM_X*j] = u[i + DIM_X*j]/rho[i + DIM_X*j];
-                v[i + DIM_X*j] = v[i + DIM_X*j]/rho[i + DIM_X*j];
-                speed[i + DIM_X*j] = Mathf.Sqrt(u[i + DIM_X*j]*u[i + DIM_X*j] + v[i + DIM_X*j]*v[i + DIM_X*j]);
-                maxSpeed = Mathf.Max(maxSpeed,speed[i + DIM_X*j]);
-                maxRho = Mathf.Max(maxRho,rho[i + DIM_X*j]);
-                minSpeed = Mathf.Min(minSpeed,speed[i + DIM_X*j]);
-                minRho = Mathf.Min(minRho,rho[i + DIM_X*j]);
-            } 
-        }
-    }
+    // void UpdatePlot()
+    // {
+    //     if(maxSpeed == 0f)maxSpeed = 1f;
+    //     if(fixHeatMapMax)
+    //     {
+    //         maxSpeed = fixedMaxSpeed;
+    //     }
+    //     if(fixHeatMapMin)
+    //     {
+    //         minSpeed = fixedMinSpeed;
+    //     }
+    //     for (int i = 0; i < plotPixels.Length; i++)
+    //     {
+    //         plotPixels[i] = colorHeatMap.GetColorForValue(speed[i%DIM_X + (i/DIM_X)*DIM_X]-minSpeed,maxSpeed-minSpeed);
+    //     }
+    //     // for (int n = 0; n < particleCount; n++)
+    //     // {
+    //     //     roundParticles[n].PlotParticleFill(ref plotPixels,DIM_X);
+    //     // }
+    //     plotTexture.SetPixels(plotPixels);
+    //     plotTexture.Apply();
+    // }
+
+    // void Collision()
+    // {
+    //     for(int i = 0; i < DIM_X; i++)
+    //     { 
+    //         for(int j = 0; j < DIM_Y; j++)
+    //         {
+    //             u2 = u[i + DIM_X*j]*u[i + DIM_X*j] + v[i + DIM_X*j]*v[i + DIM_X*j];  
+    //             for (int k = 0; k < 9; k++)
+    //             {
+    //                 tmp = cx[k]*u[i + DIM_X*j] + cy[k]*v[i + DIM_X*j];  
+    //                 f0[k + 9*(i + DIM_X*j)] = w[k]*rho[i + DIM_X*j]*(1.0f +3.0f*tmp +9.0f/2.0f*tmp*tmp -3.0f/2.0f*u2);
+    //                 f[k + 9*(i + DIM_X*j)] = f[k + 9*(i + DIM_X*j)] - (f[k + 9*(i + DIM_X*j)] - f0[k + 9*(i + DIM_X*j)])/tau + 3f*w[k]*(fx[i + DIM_X*j]*cx[k] + fy[i + DIM_X*j]*cy[k]);
+    //             }
+    //             // reset force;
+    //             fx[i + DIM_X*j] = 0.0f;
+    //             fy[i + DIM_X*j] = 0.0f;
+    //         }   
+    //     }
+    // }
+
+    // void Streaming()
+    // {
+    //     ftmp = (float[])(f.Clone());
+
+    //     for(int i = 0; i < DIM_X; i++)
+    //     { 
+    //         for(int j = 0; j < DIM_Y; j++)
+    //         { 
+    //             for(int k = 0; k < 9; k++)
+    //             {
+    //                 // periodic boundary
+    //                 int im = (i + (int)cx[k] + DIM_X)%DIM_X; 
+    //                 int jm = (j + (int)cy[k] + DIM_Y)%DIM_Y;
+    //                 // int im = i + (int)cx[k]; 
+    //                 // int jm = j + (int)cy[k];
+    //                 if((jm!=DIM_Y&&jm!=-1) && (im!=DIM_X&&im!=-1))
+    //                 {
+    //                     f[k + 9*(im + DIM_X*jm)] = ftmp[k + 9*(i + DIM_X*j)];
+    //                 }
+    //             } 
+    //         }
+    //     }
+    // }
+
+    // void BouncebackBoundaries()
+    // {
+    //     // for (int i = 0; i < DIM_X; i++)
+    //     // {
+    //     //     f[4,i,DIM_Y-1] = f[2,i,DIM_Y-1];
+    //     //     f[7,i,DIM_Y-1] = f[5,i,DIM_Y-1];
+    //     //     f[8,i,DIM_Y-1] = f[6,i,DIM_Y-1]; 
+    //     //     f[2,i,0] = f[4,i,0]; 
+    //     //     f[5,i,0] = f[7,i,0]; 
+    //     //     f[6,i,0] = f[8,i,0]; 
+    //     // }
+    //     // for (int j = 0; j < DIM_Y; j++)
+    //     // {
+    //     //     f[3,DIM_X-1,j] = f[1,DIM_X-1,j];
+    //     //     f[6,DIM_X-1,j] = f[8,DIM_X-1,j];
+    //     //     f[7,DIM_X-1,j] = f[5,DIM_X-1,j];
+    //     //     f[1,0,j] = f[3,0,j]; 
+    //     //     f[5,0,j] = f[7,0,j]; 
+    //     //     f[8,0,j] = f[6,0,j]; 
+    //     // }
+    // }
+
+    // void UpdateSpeedAndDensity()
+    // {
+    //     maxSpeed = 0f;
+    //     minSpeed = Mathf.Infinity;
+    //     maxRho = 0f;
+    //     minRho = Mathf.Infinity;
+    //     for(int i = 0; i < DIM_X; i++)
+    //     { 
+    //         for(int j = 0; j < DIM_Y; j++)
+    //         {
+    //             rho[i + DIM_X*j] = f[0 + 9*(i + DIM_X*j)]; 
+    //             u[i + DIM_X*j] = 0; v[i + DIM_X*j] = 0;
+    //             for(int k = 1; k <= 8; k++)
+    //             {
+    //                 rho[i + DIM_X*j] = rho[i + DIM_X*j] + f[k + 9*(i + DIM_X*j)];
+    //                 u[i + DIM_X*j] =   u[i + DIM_X*j] + f[k + 9*(i + DIM_X*j)]*cx[k];
+    //                 v[i + DIM_X*j] =   v[i + DIM_X*j] + f[k + 9*(i + DIM_X*j)]*cy[k];
+    //             } 
+    //             u[i + DIM_X*j] = u[i + DIM_X*j]/rho[i + DIM_X*j];
+    //             v[i + DIM_X*j] = v[i + DIM_X*j]/rho[i + DIM_X*j];
+    //             speed[i + DIM_X*j] = Mathf.Sqrt(u[i + DIM_X*j]*u[i + DIM_X*j] + v[i + DIM_X*j]*v[i + DIM_X*j]);
+    //             maxSpeed = Mathf.Max(maxSpeed,speed[i + DIM_X*j]);
+    //             maxRho = Mathf.Max(maxRho,rho[i + DIM_X*j]);
+    //             minSpeed = Mathf.Min(minSpeed,speed[i + DIM_X*j]);
+    //             minRho = Mathf.Min(minRho,rho[i + DIM_X*j]);
+    //         } 
+    //     }
+    // }
 
     void ImmersedBoundary()
     {
