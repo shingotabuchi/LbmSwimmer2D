@@ -9,6 +9,7 @@ RWTexture2D<float4> renderTexture;
 uint DIM_X;
 uint DIM_Y;
 int particleCount;
+int particlePerimeterCount;
 RWStructuredBuffer<float> uv,f;
 struct RoundParticleSmallData
 {
@@ -25,34 +26,34 @@ struct RoundParticleSmallData
     float radius;
     int bottomPointIndex;
 
-    float pos[2];
-    float vel[2];
-    float prevVel1[2];
-    float prevVel2[2];
-    float forceFromCollisions[2];
-    float forceFromFluid[2];
+    float2 pos;
+    float2 vel;
+    float2 prevVel1;
+    float2 prevVel2;
+    float2 forceFromCollisions;
+    float2 forceFromFluid;
 };
-struct RoundParticlePerimeterPos
-{
-    float perimeterPos[252*2];
-};
-struct RoundParticlePerimeterVel
-{
-    float perimeterVel[252*2];
-};
-struct RoundParticlePerimeterFluidVel
-{
-    float perimeterFluidVel[252*2];
-};
-struct RoundParticleForceOnPerimeter
-{
-    float forceOnPerimeter[252*2];
-};
+// struct RoundParticlePerimeterPos
+// {
+//     float perimeterPos[particlePerimeterCount*2];
+// };
+// struct RoundParticlePerimeterVel
+// {
+//     float perimeterVel[particlePerimeterCount*2];
+// };
+// struct RoundParticlePerimeterFluidVel
+// {
+//     float perimeterFluidVel[particlePerimeterCount*2];
+// };
+// struct RoundParticleForceOnPerimeter
+// {
+//     float forceOnPerimeter[particlePerimeterCount*2];
+// };
 RWStructuredBuffer<RoundParticleSmallData> roundParticleSmallDataBuffer;
-RWStructuredBuffer<RoundParticlePerimeterPos> roundParticleRoundParticlePerimeterPosBuffer;
-RWStructuredBuffer<RoundParticlePerimeterVel> roundParticleRoundParticlePerimeterVelBuffer;
-RWStructuredBuffer<RoundParticlePerimeterFluidVel> roundParticleRoundParticlePerimeterFluidVelBuffer;
-RWStructuredBuffer<RoundParticleForceOnPerimeter> roundParticleRoundParticleForceOnPerimeterBuffer;
+RWStructuredBuffer<float2> roundParticleRoundParticlePerimeterPosBuffer;
+RWStructuredBuffer<float2> roundParticleRoundParticlePerimeterVelBuffer;
+RWStructuredBuffer<float2> roundParticleRoundParticlePerimeterFluidVelBuffer;
+RWStructuredBuffer<float2> roundParticleRoundParticleForceOnPerimeterBuffer;
 RWStructuredBuffer<float> force;
 RWStructuredBuffer<float2> particleInitPos;
 float tauf,u0;
@@ -60,7 +61,7 @@ float minSpeed,maxSpeed;
 float particleDensity;
 float particleRadius;
 float epsw, zeta;
-const float pi = 3.1415926535897932384626433832795028841971693993751058209749445923078164;
+
 float squirmerBeta,squirmerSpeedConstant;
 float4 ColorMap(float val, float maxVal)
 {
@@ -214,68 +215,62 @@ void PlotSpeed(uint3 id : SV_DispatchThreadID)
 [numthreads(64,1,1)]
 void InitRoundParticles(uint3 id : SV_DispatchThreadID)
 {
+    float pi = 3.1415926535897932384626433832795028841971693993751058209749445923078164;
     int i;
+    float angle;
     roundParticleSmallDataBuffer[id.x].density = particleDensity;
     roundParticleSmallDataBuffer[id.x].radius = particleRadius;
     roundParticleSmallDataBuffer[id.x].volume = pi * particleRadius * particleRadius;
     roundParticleSmallDataBuffer[id.x].mass = pi * particleRadius * particleRadius * particleDensity;
     roundParticleSmallDataBuffer[id.x].momentOfInertia = (pi * particleRadius * particleRadius * particleRadius * particleRadius * particleDensity)/2.0;
-    roundParticleSmallDataBuffer[id.x].pos[0] = particleInitPos[id.x].x;
-    roundParticleSmallDataBuffer[id.x].pos[1] = particleInitPos[id.x].y;
-    roundParticleSmallDataBuffer[id.x].vel[0] = 0;
-    roundParticleSmallDataBuffer[id.x].vel[1] = 0;
-    roundParticleSmallDataBuffer[id.x].prevVel1[0] = 0;
-    roundParticleSmallDataBuffer[id.x].prevVel1[1] = 0;
-    roundParticleSmallDataBuffer[id.x].prevVel2[0] = 0;
-    roundParticleSmallDataBuffer[id.x].prevVel2[1] = 0;
+    roundParticleSmallDataBuffer[id.x].pos = particleInitPos[id.x];
+    roundParticleSmallDataBuffer[id.x].vel = float2(0,0);
+    roundParticleSmallDataBuffer[id.x].prevVel1 = float2(0,0);
+    roundParticleSmallDataBuffer[id.x].prevVel2 = float2(0,0);
     roundParticleSmallDataBuffer[id.x].omega = 0;
     roundParticleSmallDataBuffer[id.x].theta = 0;
     roundParticleSmallDataBuffer[id.x].prevOmega1 = 0;
     roundParticleSmallDataBuffer[id.x].prevOmega2 = 0;
-    roundParticleSmallDataBuffer[id.x].perimeterPointCount = (int)(2.0 * pi * particleRadius * 2.0);
-    if(roundParticleSmallDataBuffer[id.x].perimeterPointCount > 252) roundParticleSmallDataBuffer[id.x].perimeterPointCount = 252;
-    roundParticleSmallDataBuffer[id.x].forceFromCollisions[0] = 0;
-    roundParticleSmallDataBuffer[id.x].forceFromCollisions[1] = 0;
-    roundParticleSmallDataBuffer[id.x].forceFromFluid[0] = 0;
-    roundParticleSmallDataBuffer[id.x].forceFromFluid[1] = 0;
+    roundParticleSmallDataBuffer[id.x].perimeterPointCount = particlePerimeterCount;
+    roundParticleSmallDataBuffer[id.x].forceFromCollisions = float2(0,0);
+    roundParticleSmallDataBuffer[id.x].forceFromFluid = float2(0,0);
     roundParticleSmallDataBuffer[id.x].torque = 0;
 
     for(i = 0; i < roundParticleSmallDataBuffer[id.x].perimeterPointCount; i++) 
     {
-        float angle = (3.0*pi)/2.0 + 2.0*pi*(float)i/(float)roundParticleSmallDataBuffer[id.x].perimeterPointCount + roundParticleSmallDataBuffer[id.x].theta;
+        angle = (3.0*pi)/2.0 + 2.0*pi*float(i)/float(particlePerimeterCount) + roundParticleSmallDataBuffer[id.x].theta;
 
-        roundParticleRoundParticlePerimeterPosBuffer[id.x].perimeterPos[0 + 2*i] = roundParticleSmallDataBuffer[id.x].pos[0] + roundParticleSmallDataBuffer[id.x].radius * cos(angle);
-        roundParticleRoundParticlePerimeterPosBuffer[id.x].perimeterPos[1 + 2*i] = roundParticleSmallDataBuffer[id.x].pos[1] + roundParticleSmallDataBuffer[id.x].radius * sin(angle);
-        roundParticleRoundParticlePerimeterVelBuffer[id.x].perimeterVel[0 + 2*i] = roundParticleSmallDataBuffer[id.x].vel[0] - roundParticleSmallDataBuffer[id.x].omega*(roundParticleRoundParticlePerimeterPosBuffer[id.x].perimeterPos[1 + 2*i] - roundParticleSmallDataBuffer[id.x].pos[1]);
-        roundParticleRoundParticlePerimeterVelBuffer[id.x].perimeterVel[1 + 2*i] = roundParticleSmallDataBuffer[id.x].vel[1] + roundParticleSmallDataBuffer[id.x].omega*(roundParticleRoundParticlePerimeterPosBuffer[id.x].perimeterPos[0 + 2*i] - roundParticleSmallDataBuffer[id.x].pos[0]);
-        roundParticleRoundParticleForceOnPerimeterBuffer[id.x].forceOnPerimeter[0 + 2*i] = 0;
-        roundParticleRoundParticleForceOnPerimeterBuffer[id.x].forceOnPerimeter[1 + 2*i] = 0;
-        roundParticleRoundParticlePerimeterFluidVelBuffer[id.x].perimeterFluidVel[0 + 2*i] = 0;
-        roundParticleRoundParticlePerimeterFluidVelBuffer[id.x].perimeterFluidVel[1 + 2*i] = 0;
+        roundParticleRoundParticlePerimeterPosBuffer[id.x*particlePerimeterCount + i].x = roundParticleSmallDataBuffer[id.x].pos.x + roundParticleSmallDataBuffer[id.x].radius * cos(angle);
+        roundParticleRoundParticlePerimeterPosBuffer[id.x*particlePerimeterCount + i].y = roundParticleSmallDataBuffer[id.x].pos.y + roundParticleSmallDataBuffer[id.x].radius * sin(angle);
+        roundParticleRoundParticlePerimeterVelBuffer[id.x*particlePerimeterCount + i].x = roundParticleSmallDataBuffer[id.x].vel.x - roundParticleSmallDataBuffer[id.x].omega*(roundParticleRoundParticlePerimeterPosBuffer[id.x*particlePerimeterCount + i].y - roundParticleSmallDataBuffer[id.x].pos.y);
+        roundParticleRoundParticlePerimeterVelBuffer[id.x*particlePerimeterCount + i].y = roundParticleSmallDataBuffer[id.x].vel.y + roundParticleSmallDataBuffer[id.x].omega*(roundParticleRoundParticlePerimeterPosBuffer[id.x*particlePerimeterCount + i].x - roundParticleSmallDataBuffer[id.x].pos.x);
+        roundParticleRoundParticleForceOnPerimeterBuffer[id.x*particlePerimeterCount + i] = float2(0,0);
+        roundParticleRoundParticlePerimeterFluidVelBuffer[id.x*particlePerimeterCount + i] = float2(0,0);
     } 
 }
 [numthreads(64,1,1)]
 void ImmersedBoundary (uint3 id : SV_DispatchThreadID)
 {
+    float pi = 3.1415926535897932384626433832795028841971693993751058209749445923078164;
     int i,m,j;
     float tmp1,tmp2,tmp3;
-    roundParticleSmallDataBuffer[id.x].forceFromCollisions[0] = 0;
-    roundParticleSmallDataBuffer[id.x].forceFromCollisions[1] = 0;
-    tmp1 = abs(roundParticleSmallDataBuffer[id.x].pos[1] + roundParticleSmallDataBuffer[id.x].radius); 
+    roundParticleSmallDataBuffer[id.x].forceFromCollisions.x = 0;
+    roundParticleSmallDataBuffer[id.x].forceFromCollisions.y = 0;
+    tmp1 = abs(roundParticleSmallDataBuffer[id.x].pos.y + roundParticleSmallDataBuffer[id.x].radius); 
     if(tmp1 < 2.0*roundParticleSmallDataBuffer[id.x].radius + zeta){
-        roundParticleSmallDataBuffer[id.x].forceFromCollisions[1] = (roundParticleSmallDataBuffer[id.x].pos[1] + roundParticleSmallDataBuffer[id.x].radius)*(2.0*roundParticleSmallDataBuffer[id.x].radius - tmp1 + zeta)*(2.0*roundParticleSmallDataBuffer[id.x].radius - tmp1 + zeta)/epsw;
+        roundParticleSmallDataBuffer[id.x].forceFromCollisions.y = (roundParticleSmallDataBuffer[id.x].pos.y + roundParticleSmallDataBuffer[id.x].radius)*(2.0*roundParticleSmallDataBuffer[id.x].radius - tmp1 + zeta)*(2.0*roundParticleSmallDataBuffer[id.x].radius - tmp1 + zeta)/epsw;
     }
-    tmp1 = abs(DIM_Y-1-roundParticleSmallDataBuffer[id.x].pos[1] + roundParticleSmallDataBuffer[id.x].radius); 
+    tmp1 = abs(DIM_Y-1-roundParticleSmallDataBuffer[id.x].pos.y + roundParticleSmallDataBuffer[id.x].radius); 
     if(tmp1 < 2.0*roundParticleSmallDataBuffer[id.x].radius + zeta){
-        roundParticleSmallDataBuffer[id.x].forceFromCollisions[1] = -(DIM_Y-1-roundParticleSmallDataBuffer[id.x].pos[1] + roundParticleSmallDataBuffer[id.x].radius)*(2.0*roundParticleSmallDataBuffer[id.x].radius - tmp1 + zeta)*(2.0*roundParticleSmallDataBuffer[id.x].radius - tmp1 + zeta)/epsw;
+        roundParticleSmallDataBuffer[id.x].forceFromCollisions.y = -(DIM_Y-1-roundParticleSmallDataBuffer[id.x].pos.y + roundParticleSmallDataBuffer[id.x].radius)*(2.0*roundParticleSmallDataBuffer[id.x].radius - tmp1 + zeta)*(2.0*roundParticleSmallDataBuffer[id.x].radius - tmp1 + zeta)/epsw;
     }
-    tmp1 = abs(roundParticleSmallDataBuffer[id.x].pos[0] + roundParticleSmallDataBuffer[id.x].radius); 
+    tmp1 = abs(roundParticleSmallDataBuffer[id.x].pos.x + roundParticleSmallDataBuffer[id.x].radius); 
     if(tmp1 < 2.0*roundParticleSmallDataBuffer[id.x].radius + zeta){
-        roundParticleSmallDataBuffer[id.x].forceFromCollisions[0] = (roundParticleSmallDataBuffer[id.x].pos[0] + roundParticleSmallDataBuffer[id.x].radius)*(2.0*roundParticleSmallDataBuffer[id.x].radius - tmp1 + zeta)*(2.0*roundParticleSmallDataBuffer[id.x].radius - tmp1 + zeta)/epsw;
+        roundParticleSmallDataBuffer[id.x].forceFromCollisions.x = (roundParticleSmallDataBuffer[id.x].pos.x + roundParticleSmallDataBuffer[id.x].radius)*(2.0*roundParticleSmallDataBuffer[id.x].radius - tmp1 + zeta)*(2.0*roundParticleSmallDataBuffer[id.x].radius - tmp1 + zeta)/epsw;
     }
-    tmp1 = abs(DIM_X-1-roundParticleSmallDataBuffer[id.x].pos[0] + roundParticleSmallDataBuffer[id.x].radius); 
+    tmp1 = abs(DIM_X-1-roundParticleSmallDataBuffer[id.x].pos.x + roundParticleSmallDataBuffer[id.x].radius); 
     if(tmp1 < 2.0*roundParticleSmallDataBuffer[id.x].radius + zeta){
-        roundParticleSmallDataBuffer[id.x].forceFromCollisions[0] = -(DIM_X-1-roundParticleSmallDataBuffer[id.x].pos[0] + roundParticleSmallDataBuffer[id.x].radius)*(2.0*roundParticleSmallDataBuffer[id.x].radius - tmp1 + zeta)*(2.0*roundParticleSmallDataBuffer[id.x].radius - tmp1 + zeta)/epsw;
+        roundParticleSmallDataBuffer[id.x].forceFromCollisions.x = -(DIM_X-1-roundParticleSmallDataBuffer[id.x].pos.x + roundParticleSmallDataBuffer[id.x].radius)*(2.0*roundParticleSmallDataBuffer[id.x].radius - tmp1 + zeta)*(2.0*roundParticleSmallDataBuffer[id.x].radius - tmp1 + zeta)/epsw;
     }
 
     // for (int k = 0; k < particleCount; k++)
@@ -290,20 +285,20 @@ void ImmersedBoundary (uint3 id : SV_DispatchThreadID)
     //     }
     // }
 
-    roundParticleSmallDataBuffer[id.x].forceFromFluid[0] = 0;
-    roundParticleSmallDataBuffer[id.x].forceFromFluid[1] = 0;
+    roundParticleSmallDataBuffer[id.x].forceFromFluid.x = 0;
+    roundParticleSmallDataBuffer[id.x].forceFromFluid.y = 0;
     roundParticleSmallDataBuffer[id.x].torque = 0;
     for(m = 0; m < roundParticleSmallDataBuffer[id.x].perimeterPointCount ; m++) 
     {
-        roundParticleRoundParticlePerimeterFluidVelBuffer[id.x].perimeterFluidVel[m*2 + 0] = 0;
-        roundParticleRoundParticlePerimeterFluidVelBuffer[id.x].perimeterFluidVel[m*2 + 1] = 0;
+        roundParticleRoundParticlePerimeterFluidVelBuffer[id.x*particlePerimeterCount + m].x = 0;
+        roundParticleRoundParticlePerimeterFluidVelBuffer[id.x*particlePerimeterCount + m].y = 0;
         // 固体表面の速度を計算
-        for(i = (int)roundParticleRoundParticlePerimeterPosBuffer[id.x].perimeterPos[m*2 + 0] - 3; i < (int)roundParticleRoundParticlePerimeterPosBuffer[id.x].perimeterPos[m*2 + 0] + 3; i++)
+        for(i = (int)roundParticleRoundParticlePerimeterPosBuffer[id.x*particlePerimeterCount + m].x - 3; i < (int)roundParticleRoundParticlePerimeterPosBuffer[id.x*particlePerimeterCount + m].x + 3; i++)
         {
-            for(j = (int)roundParticleRoundParticlePerimeterPosBuffer[id.x].perimeterPos[m*2 + 1] - 3; j < (int)roundParticleRoundParticlePerimeterPosBuffer[id.x].perimeterPos[m*2 + 1] + 3; j++)
+            for(j = (int)roundParticleRoundParticlePerimeterPosBuffer[id.x*particlePerimeterCount + m].y - 3; j < (int)roundParticleRoundParticlePerimeterPosBuffer[id.x*particlePerimeterCount + m].y + 3; j++)
             {
-                tmp1 = abs(roundParticleRoundParticlePerimeterPosBuffer[id.x].perimeterPos[m*2 + 0] - (float)i);
-                tmp2 = abs(roundParticleRoundParticlePerimeterPosBuffer[id.x].perimeterPos[m*2 + 1] - (float)j);
+                tmp1 = abs(roundParticleRoundParticlePerimeterPosBuffer[id.x*particlePerimeterCount + m].x - (float)i);
+                tmp2 = abs(roundParticleRoundParticlePerimeterPosBuffer[id.x*particlePerimeterCount + m].y - (float)j);
                 if(tmp1 <= 2.0)
                 {
                     tmp3 = (1.0 + cos(pi*tmp1/2.0))/4.0;
@@ -315,15 +310,15 @@ void ImmersedBoundary (uint3 id : SV_DispatchThreadID)
                 if(tmp2 <= 2.0)
                 {
                     tmp3 = (1.0 + cos(pi*tmp2/2.0))/4.0*tmp3;
-                } 
+                }
                 else 
                 {
                     tmp3 = 0.0;
                 }
                 if((j<(int)DIM_Y&&j>=0) && (i<(int)DIM_X&&i>=0))
                 {
-                    roundParticleRoundParticlePerimeterFluidVelBuffer[id.x].perimeterFluidVel[m*2 + 0] += uv[(id.x + id.y * DIM_X)*2 + 0]*tmp3;
-                    roundParticleRoundParticlePerimeterFluidVelBuffer[id.x].perimeterFluidVel[m*2 + 1] += uv[(id.x + id.y * DIM_X)*2 + 1]*tmp3;
+                    roundParticleRoundParticlePerimeterFluidVelBuffer[id.x*particlePerimeterCount + m].x += uv[(i + j * DIM_X)*2 + 0]*tmp3;
+                    roundParticleRoundParticlePerimeterFluidVelBuffer[id.x*particlePerimeterCount + m].y += uv[(i + j * DIM_X)*2 + 1]*tmp3;
                 }
             } 
         }
@@ -331,19 +326,19 @@ void ImmersedBoundary (uint3 id : SV_DispatchThreadID)
         float sn = sin(boundaryPointTheta);
         float cs = cos(boundaryPointTheta);
         float surfaceVelocityNorm = squirmerSpeedConstant * ( sn + 2 * squirmerBeta * sn * cs );
-        float surfaceVelocity[2] = {cs * surfaceVelocityNorm , -sn * surfaceVelocityNorm};
-        roundParticleRoundParticlePerimeterFluidVelBuffer[id.x].perimeterFluidVel[m*2 + 0] += surfaceVelocity[0];
-        roundParticleRoundParticlePerimeterFluidVelBuffer[id.x].perimeterFluidVel[m*2 + 1] += surfaceVelocity[1];
-        roundParticleRoundParticleForceOnPerimeterBuffer[id.x].forceOnPerimeter[m*2 + 0] = roundParticleRoundParticlePerimeterVelBuffer[id.x].perimeterVel[m*2 + 0] - roundParticleRoundParticlePerimeterFluidVelBuffer[id.x].perimeterFluidVel[m*2 + 0];
-        roundParticleRoundParticleForceOnPerimeterBuffer[id.x].forceOnPerimeter[m*2 + 1] = roundParticleRoundParticlePerimeterVelBuffer[id.x].perimeterVel[m*2 + 1] - roundParticleRoundParticlePerimeterFluidVelBuffer[id.x].perimeterFluidVel[m*2 + 1];
+        float2 surfaceVelocity = float2(cs * surfaceVelocityNorm , -sn * surfaceVelocityNorm);
+        roundParticleRoundParticlePerimeterFluidVelBuffer[id.x*particlePerimeterCount + m].x += surfaceVelocity.x;
+        roundParticleRoundParticlePerimeterFluidVelBuffer[id.x*particlePerimeterCount + m].y += surfaceVelocity.y;
+        roundParticleRoundParticleForceOnPerimeterBuffer[id.x*particlePerimeterCount + m].x = roundParticleRoundParticlePerimeterVelBuffer[id.x*particlePerimeterCount + m].x - roundParticleRoundParticlePerimeterFluidVelBuffer[id.x*particlePerimeterCount + m].x;
+        roundParticleRoundParticleForceOnPerimeterBuffer[id.x*particlePerimeterCount + m].y = roundParticleRoundParticlePerimeterVelBuffer[id.x*particlePerimeterCount + m].y - roundParticleRoundParticlePerimeterFluidVelBuffer[id.x*particlePerimeterCount + m].y;
 
         // 固体が外部に与える力を計算
-        for(i = (int)roundParticleRoundParticlePerimeterPosBuffer[id.x].perimeterPos[m*2 + 0] - 3; i < (int)roundParticleRoundParticlePerimeterPosBuffer[id.x].perimeterPos[m*2 + 0] + 3; i++)
+        for(i = (int)roundParticleRoundParticlePerimeterPosBuffer[id.x*particlePerimeterCount + m].x - 3; i < (int)roundParticleRoundParticlePerimeterPosBuffer[id.x*particlePerimeterCount + m].x + 3; i++)
         {
-            for(j = (int)roundParticleRoundParticlePerimeterPosBuffer[id.x].perimeterPos[m*2 + 1] - 3; j < (int)roundParticleRoundParticlePerimeterPosBuffer[id.x].perimeterPos[m*2 + 1] + 3; j++)
+            for(j = (int)roundParticleRoundParticlePerimeterPosBuffer[id.x*particlePerimeterCount + m].y - 3; j < (int)roundParticleRoundParticlePerimeterPosBuffer[id.x*particlePerimeterCount + m].y + 3; j++)
             {
-                tmp1 = abs(roundParticleRoundParticlePerimeterPosBuffer[id.x].perimeterPos[m*2 + 0] - (float)i);
-                tmp2 = abs(roundParticleRoundParticlePerimeterPosBuffer[id.x].perimeterPos[m*2 + 1] - (float)j);
+                tmp1 = abs(roundParticleRoundParticlePerimeterPosBuffer[id.x*particlePerimeterCount + m].x - (float)i);
+                tmp2 = abs(roundParticleRoundParticlePerimeterPosBuffer[id.x*particlePerimeterCount + m].y - (float)j);
                 if(tmp1 <= 2.0)
                 {
                     tmp3 = (1.0 + cos(pi*tmp1/2.0))/4.0;
@@ -362,18 +357,44 @@ void ImmersedBoundary (uint3 id : SV_DispatchThreadID)
                 }
                 if((j<(int)DIM_Y&&j>=0) && (i<(int)DIM_X&&i>=0))
                 {
-                    force[0 + (id.x + id.y * DIM_X)*2] += roundParticleRoundParticleForceOnPerimeterBuffer[id.x].forceOnPerimeter[m*2 + 0] * tmp3 * 2.0*pi*roundParticleSmallDataBuffer[id.x].radius/(float)roundParticleSmallDataBuffer[id.x].perimeterPointCount;
-                    force[1 + (id.x + id.y * DIM_X)*2] += roundParticleRoundParticleForceOnPerimeterBuffer[id.x].forceOnPerimeter[m*2 + 1] * tmp3 * 2.0*pi*roundParticleSmallDataBuffer[id.x].radius/(float)roundParticleSmallDataBuffer[id.x].perimeterPointCount;
+                    force[0 + (i + j * DIM_X)*2] += roundParticleRoundParticleForceOnPerimeterBuffer[id.x*particlePerimeterCount + m].x * tmp3 * 2.0*pi*roundParticleSmallDataBuffer[id.x].radius/(float)roundParticleSmallDataBuffer[id.x].perimeterPointCount;
+                    force[1 + (i + j * DIM_X)*2] += roundParticleRoundParticleForceOnPerimeterBuffer[id.x*particlePerimeterCount + m].y * tmp3 * 2.0*pi*roundParticleSmallDataBuffer[id.x].radius/(float)roundParticleSmallDataBuffer[id.x].perimeterPointCount;
+                    // force[0 + (i + j * DIM_X)*2] = 10000000;
+                    // force[1 + (i + j * DIM_X)*2] = 10000000;
                 }
             } 
         }
-        roundParticleSmallDataBuffer[id.x].forceFromFluid[0] += roundParticleRoundParticleForceOnPerimeterBuffer[id.x].forceOnPerimeter[m*2 + 0];
-        roundParticleSmallDataBuffer[id.x].forceFromFluid[1] += roundParticleRoundParticleForceOnPerimeterBuffer[id.x].forceOnPerimeter[m*2 + 1];
-        roundParticleSmallDataBuffer[id.x].torque += roundParticleRoundParticleForceOnPerimeterBuffer[id.x].forceOnPerimeter[m*2 + 1] * (roundParticleRoundParticlePerimeterPosBuffer[id.x].perimeterPos[m*2 + 0] - roundParticleSmallDataBuffer[id.x].pos[0]) 
-                                - roundParticleRoundParticleForceOnPerimeterBuffer[id.x].forceOnPerimeter[m*2 + 0] * (roundParticleRoundParticlePerimeterPosBuffer[id.x].perimeterPos[m*2 + 1] - roundParticleSmallDataBuffer[id.x].pos[1]);
+        roundParticleSmallDataBuffer[id.x].forceFromFluid.x += roundParticleRoundParticleForceOnPerimeterBuffer[id.x*particlePerimeterCount + m].x;
+        roundParticleSmallDataBuffer[id.x].forceFromFluid.y += roundParticleRoundParticleForceOnPerimeterBuffer[id.x*particlePerimeterCount + m].y;
+        roundParticleSmallDataBuffer[id.x].torque += roundParticleRoundParticleForceOnPerimeterBuffer[id.x*particlePerimeterCount + m].y * (roundParticleRoundParticlePerimeterPosBuffer[id.x*particlePerimeterCount + m].x - roundParticleSmallDataBuffer[id.x].pos.x) 
+                                - roundParticleRoundParticleForceOnPerimeterBuffer[id.x*particlePerimeterCount + m].x * (roundParticleRoundParticlePerimeterPosBuffer[id.x*particlePerimeterCount + m].y - roundParticleSmallDataBuffer[id.x].pos.y);
     } 
 
-    roundParticleSmallDataBuffer[id.x].forceFromFluid[0] *= -2*pi*roundParticleSmallDataBuffer[id.x].radius/(float)roundParticleSmallDataBuffer[id.x].perimeterPointCount;  
-    roundParticleSmallDataBuffer[id.x].forceFromFluid[1] *= -2*pi*roundParticleSmallDataBuffer[id.x].radius/(float)roundParticleSmallDataBuffer[id.x].perimeterPointCount;  
+    roundParticleSmallDataBuffer[id.x].forceFromFluid.x *= -2*pi*roundParticleSmallDataBuffer[id.x].radius/(float)roundParticleSmallDataBuffer[id.x].perimeterPointCount;  
+    roundParticleSmallDataBuffer[id.x].forceFromFluid.y *= -2*pi*roundParticleSmallDataBuffer[id.x].radius/(float)roundParticleSmallDataBuffer[id.x].perimeterPointCount;  
     roundParticleSmallDataBuffer[id.x].torque *= -2*pi*roundParticleSmallDataBuffer[id.x].radius/(float)roundParticleSmallDataBuffer[id.x].perimeterPointCount;  
+
+    roundParticleSmallDataBuffer[id.x].vel = (1.0 + 1.0/roundParticleSmallDataBuffer[id.x].density) * roundParticleSmallDataBuffer[id.x].prevVel1
+                            - 1.0/roundParticleSmallDataBuffer[id.x].density * roundParticleSmallDataBuffer[id.x].prevVel2
+                            + (roundParticleSmallDataBuffer[id.x].forceFromFluid + roundParticleSmallDataBuffer[id.x].forceFromCollisions)/roundParticleSmallDataBuffer[id.x].mass;
+                            
+    roundParticleSmallDataBuffer[id.x].pos += (roundParticleSmallDataBuffer[id.x].vel + roundParticleSmallDataBuffer[id.x].prevVel1)/2.0;
+    roundParticleSmallDataBuffer[id.x].prevVel2 = roundParticleSmallDataBuffer[id.x].prevVel1;
+    roundParticleSmallDataBuffer[id.x].prevVel1 = roundParticleSmallDataBuffer[id.x].vel;
+
+    roundParticleSmallDataBuffer[id.x].omega = (1.0 + 1.0/roundParticleSmallDataBuffer[id.x].density) * roundParticleSmallDataBuffer[id.x].prevOmega1 
+                            - 1.0/roundParticleSmallDataBuffer[id.x].density * roundParticleSmallDataBuffer[id.x].prevOmega2
+                            + roundParticleSmallDataBuffer[id.x].torque/roundParticleSmallDataBuffer[id.x].momentOfInertia;
+    roundParticleSmallDataBuffer[id.x].theta += (roundParticleSmallDataBuffer[id.x].omega + roundParticleSmallDataBuffer[id.x].prevOmega1)/2.0;
+    roundParticleSmallDataBuffer[id.x].prevOmega2 = roundParticleSmallDataBuffer[id.x].prevOmega1;
+    roundParticleSmallDataBuffer[id.x].prevOmega1 = roundParticleSmallDataBuffer[id.x].omega;
+
+    for(i = 0; i < roundParticleSmallDataBuffer[id.x].perimeterPointCount; i++) 
+    {
+        float angle = (3.0*pi)/2.0 + 2.0*pi*float(i)/float(particlePerimeterCount) + roundParticleSmallDataBuffer[id.x].theta;
+        roundParticleRoundParticlePerimeterPosBuffer[id.x*particlePerimeterCount + i].x = roundParticleSmallDataBuffer[id.x].pos.x + roundParticleSmallDataBuffer[id.x].radius * cos(angle);
+        roundParticleRoundParticlePerimeterPosBuffer[id.x*particlePerimeterCount + i].y = roundParticleSmallDataBuffer[id.x].pos.y + roundParticleSmallDataBuffer[id.x].radius * sin(angle);
+        roundParticleRoundParticlePerimeterVelBuffer[id.x*particlePerimeterCount + i].x = roundParticleSmallDataBuffer[id.x].vel.x - roundParticleSmallDataBuffer[id.x].omega*(roundParticleRoundParticlePerimeterPosBuffer[id.x*particlePerimeterCount + i].y - roundParticleSmallDataBuffer[id.x].pos.y);
+        roundParticleRoundParticlePerimeterVelBuffer[id.x*particlePerimeterCount + i].y = roundParticleSmallDataBuffer[id.x].vel.y + roundParticleSmallDataBuffer[id.x].omega*(roundParticleRoundParticlePerimeterPosBuffer[id.x*particlePerimeterCount + i].x - roundParticleSmallDataBuffer[id.x].pos.x);
+    } 
 } 

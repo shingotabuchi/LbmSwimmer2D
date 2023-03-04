@@ -27,7 +27,8 @@ public class LbmSwimmer2D : MonoBehaviour
     public float particleDensity = 1.25f;
     public float particleRadius;
     public float epsw = 100.0f, zeta = 1.0f;
-
+    public float squirmerBeta = 0f;
+    public float squirmerSpeedConstant = 0.001f;
     Texture2D plotTexture;
     RenderTexture renderTexture;
     int init,collisions,streaming,boundaries,plotSpeed,immersedBoundary,initRoundParticles;
@@ -39,10 +40,15 @@ public class LbmSwimmer2D : MonoBehaviour
     ComputeBuffer roundParticleRoundParticleForceOnPerimeterBuffer;
     ComputeBuffer roundParticleInitPosBuffer;
     Vector2[] particleInitPos;
+
+    Vector2[] debugFluidVel;
+    RoundParticleSmallData[] debugSmallData;
     void OnDestroy()
     {
         uv.Dispose();
         f.Dispose();
+        force.Dispose();
+        roundParticleInitPosBuffer.Dispose();
         roundParticleSmallDataBuffer.Dispose();
         roundParticleRoundParticlePerimeterPosBuffer.Dispose();
         roundParticleRoundParticlePerimeterVelBuffer.Dispose();
@@ -55,6 +61,11 @@ public class LbmSwimmer2D : MonoBehaviour
     // Start is called before the first frame update
     void Start()
     {
+        int particlePerimeterCount = (int)(2f * Mathf.PI * particleRadius * 2f);
+
+        debugSmallData = new RoundParticleSmallData[particleCount];
+        debugFluidVel = new Vector2[particleCount * particlePerimeterCount];
+
         plotTexture = new Texture2D(DIM_X,DIM_Y);
         plotTexture.filterMode = FilterMode.Point;
         plotImage.sprite = Sprite.Create(plotTexture, new Rect(0,0,DIM_X,DIM_Y),UnityEngine.Vector2.zero);
@@ -67,10 +78,10 @@ public class LbmSwimmer2D : MonoBehaviour
         f = new ComputeBuffer(9*DIM_X*DIM_Y*2,sizeof(float));
 
         roundParticleSmallDataBuffer = new ComputeBuffer(particleCount,Marshal.SizeOf(typeof(RoundParticleSmallData)));
-        roundParticleRoundParticlePerimeterPosBuffer = new ComputeBuffer(particleCount,Marshal.SizeOf(typeof(RoundParticlePerimeterPos)));
-        roundParticleRoundParticlePerimeterVelBuffer = new ComputeBuffer(particleCount,Marshal.SizeOf(typeof(RoundParticlePerimeterVel)));
-        roundParticleRoundParticlePerimeterFluidVelBuffer = new ComputeBuffer(particleCount,Marshal.SizeOf(typeof(RoundParticlePerimeterFluidVel)));
-        roundParticleRoundParticleForceOnPerimeterBuffer = new ComputeBuffer(particleCount,Marshal.SizeOf(typeof(RoundParticleForceOnPerimeter)));
+        roundParticleRoundParticlePerimeterPosBuffer = new ComputeBuffer(particleCount * particlePerimeterCount,sizeof(float) * 2);
+        roundParticleRoundParticlePerimeterVelBuffer = new ComputeBuffer(particleCount * particlePerimeterCount,sizeof(float) * 2);
+        roundParticleRoundParticlePerimeterFluidVelBuffer = new ComputeBuffer(particleCount * particlePerimeterCount,sizeof(float) * 2);
+        roundParticleRoundParticleForceOnPerimeterBuffer = new ComputeBuffer(particleCount * particlePerimeterCount,sizeof(float) * 2);
         roundParticleInitPosBuffer = new ComputeBuffer(particleCount,sizeof(float) * 2);
 
         immersedBoundary = compute.FindKernel("ImmersedBoundary");
@@ -87,12 +98,15 @@ public class LbmSwimmer2D : MonoBehaviour
         compute.SetInt("DIM_Y",DIM_Y);
         compute.SetFloat("minSpeed",minSpeed);
         compute.SetFloat("maxSpeed",maxSpeed);
+        compute.SetFloat("squirmerSpeedConstant",squirmerSpeedConstant);
+        compute.SetFloat("squirmerBeta",squirmerBeta);
         compute.SetFloat("u0",u0);
         compute.SetFloat("tauf",tauf);
 
         compute.SetInt("particleCount",particleCount);
         compute.SetFloat("particleDensity",particleDensity);
         compute.SetFloat("particleRadius",particleRadius);
+        compute.SetInt("particlePerimeterCount",particlePerimeterCount);
         compute.SetFloat("zeta",zeta);
         compute.SetFloat("epsw",epsw);
         particleInitPos = new Vector2[particleCount];
@@ -111,6 +125,7 @@ public class LbmSwimmer2D : MonoBehaviour
         compute.SetBuffer(initRoundParticles,"particleInitPos",roundParticleInitPosBuffer);
 
         init = compute.FindKernel("Init");
+        compute.SetBuffer(init,"force",force);
         compute.SetBuffer(init,"uv",uv);
         compute.SetBuffer(init,"f",f);
 
@@ -156,6 +171,19 @@ public class LbmSwimmer2D : MonoBehaviour
                 compute.Dispatch(streaming,(DIM_X+7)/8,(DIM_Y+7)/8,1);
                 compute.Dispatch(boundaries,(DIM+63)/64,1,1);
                 compute.Dispatch(immersedBoundary,(particleCount+63)/64,1,1);
+                roundParticleSmallDataBuffer.GetData(debugSmallData);
+                print(debugSmallData[0].volume);
+                print(debugSmallData[0].perimeterPointCount);
+                print(debugSmallData[0].pos);
+                print(debugSmallData[0].vel);
+                print(debugSmallData[0].forceFromCollisions);
+                print(debugSmallData[0].forceFromFluid);
+                // roundParticleRoundParticlePerimeterFluidVelBuffer.GetData(debugFluidVel);
+                roundParticleRoundParticlePerimeterPosBuffer.GetData(debugFluidVel);
+                foreach(Vector2 vel in debugFluidVel)
+                {
+                    print(vel);
+                }
                 debugFrame = false;
             }
         }
@@ -180,18 +208,11 @@ public class LbmSwimmer2D : MonoBehaviour
 
     private void OnValidate() 
     {
-        nu = (tauf - 0.5f)/3.0f;
-        chi = nu/pr;
-        taug = 3.0f*chi + 0.5f;
-        rbetag = ra*nu*chi/h/h/h;
-
-        compute.SetFloat("minTemp",minTemp);
-        compute.SetFloat("maxTemp",maxTemp);
         compute.SetFloat("minSpeed",minSpeed);
         compute.SetFloat("maxSpeed",maxSpeed);
         compute.SetFloat("u0",u0);
-        compute.SetFloat("rbetag",rbetag);
-        compute.SetFloat("taug",taug);
         compute.SetFloat("tauf",tauf);
+        compute.SetFloat("squirmerBeta",squirmerBeta);
+        compute.SetFloat("squirmerSpeedConstant",squirmerSpeedConstant);
     }
 }

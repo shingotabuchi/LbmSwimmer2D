@@ -217,7 +217,7 @@ MonoBehaviour:
   DIM_Y: 512
   pr: 0.71
   ra: 10000
-  tauf: 0.8
+  tauf: 3
   u0: 0
   loopCount: 1
   minTemp: 0
@@ -226,11 +226,13 @@ MonoBehaviour:
   maxSpeed: 0.01
   debugMode: 0
   debugFrame: 0
-  particleCount: 1
+  particleCount: 2
   particleDensity: 1.25
-  particleRadius: 20
+  particleRadius: 10
   epsw: 100
   zeta: 1
+  squirmerBeta: 0
+  squirmerSpeedConstant: 0.1
   compute: {fileID: 7200000, guid: 36a5331066287964a8a5798c9fdb2de5, type: 3}
 --- !u!1 &795637844
 GameObject:
