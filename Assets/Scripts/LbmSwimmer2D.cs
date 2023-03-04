@@ -110,9 +110,10 @@ public class LbmSwimmer2D : MonoBehaviour
         compute.SetFloat("zeta",zeta);
         compute.SetFloat("epsw",epsw);
         particleInitPos = new Vector2[particleCount];
+        float dist = 3 * particleRadius; 
         for(int i = 0; i < particleCount; i++)
         {
-            particleInitPos[i] = new Vector2(DIM_X/2,DIM_Y/2);
+            particleInitPos[i] = new Vector2(DIM_X/2 - dist*particleCount/2 + dist*i,DIM_Y/2);
         }
         roundParticleInitPosBuffer.SetData(particleInitPos);
 
@@ -212,6 +213,8 @@ public class LbmSwimmer2D : MonoBehaviour
         compute.SetFloat("maxSpeed",maxSpeed);
         compute.SetFloat("u0",u0);
         compute.SetFloat("tauf",tauf);
+        compute.SetFloat("epsw",epsw);
+        compute.SetFloat("zeta",zeta);
         compute.SetFloat("squirmerBeta",squirmerBeta);
         compute.SetFloat("squirmerSpeedConstant",squirmerSpeedConstant);
     }

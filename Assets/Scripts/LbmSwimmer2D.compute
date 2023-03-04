@@ -273,17 +273,15 @@ void ImmersedBoundary (uint3 id : SV_DispatchThreadID)
         roundParticleSmallDataBuffer[id.x].forceFromCollisions.x = -(DIM_X-1-roundParticleSmallDataBuffer[id.x].pos.x + roundParticleSmallDataBuffer[id.x].radius)*(2.0*roundParticleSmallDataBuffer[id.x].radius - tmp1 + zeta)*(2.0*roundParticleSmallDataBuffer[id.x].radius - tmp1 + zeta)/epsw;
     }
 
-    // for (int k = 0; k < particleCount; k++)
-    // {
-    //     if(k==n) continue;
-    //     for (int i = 0; i < 2; i++)
-    //     {
-    //         tmp1 = roundParticles[n].ParticleDistance(roundParticles[k]);
-    //         if(tmp1 < 2.0*roundParticleSmallDataBuffer[id.x].radius + zeta){
-    //             roundParticleSmallDataBuffer[id.x].forceFromCollisions[i] += (roundParticleSmallDataBuffer[id.x].pos[i] - roundParticles[k].smallData.pos[i])*(2.0*roundParticleSmallDataBuffer[id.x].radius - tmp1 + zeta)*(2.0*roundParticleSmallDataBuffer[id.x].radius - tmp1 + zeta)/epsw;
-    //         }
-    //     }
-    // }
+    for (j = 0; j < particleCount; j++)
+    {
+        if(j==(int)id.x) continue;
+        float2 distVec = roundParticleSmallDataBuffer[id.x].pos - roundParticleSmallDataBuffer[j].pos;
+        tmp1 = sqrt(distVec.x * distVec.x + distVec.y*distVec.y);
+        if(tmp1 < 2.0*roundParticleSmallDataBuffer[id.x].radius + zeta){
+            roundParticleSmallDataBuffer[id.x].forceFromCollisions += (roundParticleSmallDataBuffer[id.x].pos - roundParticleSmallDataBuffer[j].pos)*(2.0*roundParticleSmallDataBuffer[id.x].radius - tmp1 + zeta)*(2.0*roundParticleSmallDataBuffer[id.x].radius - tmp1 + zeta)/epsw;
+        }
+    }
 
     roundParticleSmallDataBuffer[id.x].forceFromFluid.x = 0;
     roundParticleSmallDataBuffer[id.x].forceFromFluid.y = 0;

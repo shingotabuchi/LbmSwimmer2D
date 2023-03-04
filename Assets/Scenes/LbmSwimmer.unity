@@ -226,12 +226,12 @@ MonoBehaviour:
   maxSpeed: 0.01
   debugMode: 0
   debugFrame: 0
-  particleCount: 2
+  particleCount: 10
   particleDensity: 1.25
   particleRadius: 10
   epsw: 100
-  zeta: 1
-  squirmerBeta: 0
+  zeta: 10
+  squirmerBeta: 5
   squirmerSpeedConstant: 0.1
   compute: {fileID: 7200000, guid: 36a5331066287964a8a5798c9fdb2de5, type: 3}
 --- !u!1 &795637844
