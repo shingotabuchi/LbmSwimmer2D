@@ -1,16 +1,19 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 using System.Runtime.InteropServices;
 using UnityEngine.VFX;
-
+using FftSharp;
 public class LbmSwimmer2D : MonoBehaviour
 {
     public Image plotImage;
     public Image particleImage;
     public int DIM_X;
     public int DIM_Y;
+    public int ParticleDIM_X;
+    public int ParticleDIM_Y;
     public float pr = 0.71f;
     public float ra =   10000.0f;
     public float tauf = 0.8f;
@@ -34,6 +37,7 @@ public class LbmSwimmer2D : MonoBehaviour
     Texture2D plotTexture;
     Texture2D particleTexture;
     RenderTexture renderTexture;
+    RenderTexture particleRenderTexture;
     int init,collisions,streaming,boundaries,plotSpeed,immersedBoundary,initRoundParticles,plotParticle;
     ComputeBuffer uv,f,force;
     ComputeBuffer roundParticleSmallDataBuffer;
@@ -49,6 +53,9 @@ public class LbmSwimmer2D : MonoBehaviour
 
     public VisualEffect vfx;
     GraphicsBuffer velocityGraphicsBuffer;
+    public bool showGraph;
+    public Graph graph;
+    float[] uvBuffer;
     void OnDestroy()
     {
         uv.Dispose();
@@ -60,15 +67,85 @@ public class LbmSwimmer2D : MonoBehaviour
         roundParticleRoundParticlePerimeterVelBuffer.Dispose();
         roundParticleRoundParticlePerimeterFluidVelBuffer.Dispose();
         roundParticleRoundParticleForceOnPerimeterBuffer.Dispose();
+        velocityGraphicsBuffer.Dispose();
     }
     public ComputeShader compute;
 
     float umax, umin, tmp, u2, nu, chi, norm, taug, rbetag, h;
+
+    double[] qArray;
+    Dictionary<int,int> gridPosToQIndex = new Dictionary<int,int>();
     // Start is called before the first frame update
     void Start()
     {
+        // // Begin with an array containing sample data
+        // double[] signal = FftSharp.SampleData.SampleAudio1();
+
+        // // Shape the signal using a Hanning window
+        // var window = new FftSharp.Windows.Hanning();
+        // window.ApplyInPlace(signal);
+
+        // // Calculate the FFT as an array of complex numbers
+        // Complex[] fftRaw = FftSharp.Transform.FFT(signal);
+
+        // // or get the magnitude (units²) or power (dB) as real numbers
+        // double[] fftMag = FftSharp.Transform.FFTmagnitude(signal);
+        // double[] fftPwr = FftSharp.Transform.FFTpower(signal);
+        // int sampleRate = 48_000;
+        // double[] freq = FftSharp.Transform.FFTfreq(sampleRate, fftPwr.Length);
+        // print(fftPwr.Length);
+        // print(freq.Length);
+        // graph.Plot(freq,fftPwr);
+
+        // double[] freq = FftSharp.Transform.FFTfreq(1, DIM_X,false);
+        // for (int i = 0; i < freq.Length; i++)
+        // {
+        //     print(freq[i]);
+        // }
+
+        if(showGraph) graph.transform.gameObject.SetActive(true);
+        else graph.transform.gameObject.SetActive(false);
+        
+        double[] qFromX = FftSharp.Transform.FFTfreq(1, DIM_X,false);
+        double[] qFromY = FftSharp.Transform.FFTfreq(1, DIM_Y,false);
+        HashSet<double> qSet = new HashSet<double>();
+        List<double> qList = new List<double>();
+        for (int i = 0; i < DIM_X; i++)
+        {
+            for (int j = 0; j < DIM_Y; j++)
+            {
+                double q = Math.Sqrt(qFromX[i]*qFromX[i] + qFromY[j]*qFromY[j]);
+                if(!qSet.Contains(q))
+                {
+                    qList.Add(q);
+                }   
+                qSet.Add(q);
+            }
+        }
+
+        qList.Sort();
+        for (int i = 0; i < DIM_X; i++)
+        {
+            for (int j = 0; j < DIM_Y; j++)
+            {
+                double q = Math.Sqrt(qFromX[i]*qFromX[i] + qFromY[j]*qFromY[j]);
+                for (int k = 0; k < qList.Count; k++)
+                {
+                    if(q == qList[k])
+                    {
+                        gridPosToQIndex.Add(i + j*DIM_X,k);
+                        break;
+                    }
+                }
+            }
+        }
+
+        qArray = qList.ToArray();
+
         velocityGraphicsBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, DIM_X*DIM_Y, sizeof(float)*2);
         vfx.SetGraphicsBuffer("VelocityBuffer",velocityGraphicsBuffer);
+        vfx.SetInt("DIM_X",DIM_X);
+        vfx.SetInt("DIM_Y",DIM_Y);
         int particlePerimeterCount = (int)(2f * Mathf.PI * particleRadius * 2f);
 
         debugSmallData = new RoundParticleSmallData[particleCount];
@@ -79,17 +156,20 @@ public class LbmSwimmer2D : MonoBehaviour
         plotImage.sprite = Sprite.Create(plotTexture, new Rect(0,0,DIM_X,DIM_Y),UnityEngine.Vector2.zero);
         ((RectTransform)plotImage.transform).sizeDelta = new Vector2(DIM_X*1080/DIM_Y,1080);
 
-        particleTexture = new Texture2D(DIM_X,DIM_Y);
+        particleTexture = new Texture2D(ParticleDIM_X,ParticleDIM_Y);
         // particleTexture.filterMode = FilterMode.Point;
-        particleImage.sprite = Sprite.Create(particleTexture, new Rect(0,0,DIM_X,DIM_Y),UnityEngine.Vector2.zero);
-        ((RectTransform)particleImage.transform).sizeDelta = new Vector2(DIM_X*1080/DIM_Y,1080);
+        particleImage.sprite = Sprite.Create(particleTexture, new Rect(0,0,ParticleDIM_X,ParticleDIM_Y),UnityEngine.Vector2.zero);
+        ((RectTransform)particleImage.transform).sizeDelta = new Vector2(ParticleDIM_X*1080/ParticleDIM_Y,1080);
 
         renderTexture = new RenderTexture(DIM_X,DIM_Y,24);
         renderTexture.enableRandomWrite = true;
+        particleRenderTexture = new RenderTexture(ParticleDIM_X,ParticleDIM_Y,24);
+        particleRenderTexture.enableRandomWrite = true;
 
         uv = new ComputeBuffer(DIM_X*DIM_Y*2,sizeof(float));
         force = new ComputeBuffer(DIM_X*DIM_Y*2,sizeof(float));
         f = new ComputeBuffer(9*DIM_X*DIM_Y*2,sizeof(float));
+        uvBuffer = new float[DIM_X*DIM_Y*2];
 
         roundParticleSmallDataBuffer = new ComputeBuffer(particleCount,Marshal.SizeOf(typeof(RoundParticleSmallData)));
         roundParticleRoundParticlePerimeterPosBuffer = new ComputeBuffer(particleCount * particlePerimeterCount,sizeof(float) * 2);
@@ -110,6 +190,8 @@ public class LbmSwimmer2D : MonoBehaviour
 
         compute.SetInt("DIM_X",DIM_X);
         compute.SetInt("DIM_Y",DIM_Y);
+        compute.SetInt("ParticleDIM_X",ParticleDIM_X);
+        compute.SetInt("ParticleDIM_Y",ParticleDIM_Y);
         compute.SetFloat("minSpeed",minSpeed);
         compute.SetFloat("maxSpeed",maxSpeed);
         compute.SetFloat("squirmerSpeedConstant",squirmerSpeedConstant);
@@ -127,8 +209,8 @@ public class LbmSwimmer2D : MonoBehaviour
         float dist = 3 * particleRadius; 
         for(int i = 0; i < particleCount; i++)
         {
-            // particleInitPos[i] = new Vector2(DIM_X/2 - dist*particleCount/2 + dist*i,DIM_Y/2);
-            particleInitPos[i] = new Vector2(Random.Range(0f,DIM_X),Random.Range(0f,DIM_Y));
+            // particleInitPos[i] = new Vector2(DIM_X/2,DIM_Y/2);
+            particleInitPos[i] = new Vector2(UnityEngine.Random.Range(0f,DIM_X),UnityEngine.Random.Range(0f,DIM_Y));
         }
         roundParticleInitPosBuffer.SetData(particleInitPos);
 
@@ -163,18 +245,18 @@ public class LbmSwimmer2D : MonoBehaviour
         compute.SetBuffer(boundaries,"f",f);
 
         plotParticle = compute.FindKernel("PlotParticle");
-        compute.SetTexture(plotParticle,"renderTexture",renderTexture);
+        compute.SetTexture(plotParticle,"particleRenderTexture",particleRenderTexture);
         compute.SetBuffer(plotParticle,"roundParticleSmallDataBuffer",roundParticleSmallDataBuffer);
 
         compute.Dispatch(init,(DIM_X+7)/8,(DIM_Y+7)/8,1);
-        compute.Dispatch(initRoundParticles,(particleCount+63)/64,1,1);
+        if(particleCount > 0)compute.Dispatch(initRoundParticles,(particleCount+63)/64,1,1);
         compute.Dispatch(plotSpeed,(DIM_X+7)/8,(DIM_Y+7)/8,1);
         RenderTexture.active = renderTexture;
         plotTexture.ReadPixels(new Rect(0, 0, renderTexture.width, renderTexture.height), 0, 0);
         plotTexture.Apply();
-        compute.Dispatch(plotParticle,(DIM_X+7)/8,(DIM_Y+7)/8,1);
-        RenderTexture.active = renderTexture;
-        particleTexture.ReadPixels(new Rect(0, 0, renderTexture.width, renderTexture.height), 0, 0);
+        compute.Dispatch(plotParticle,(ParticleDIM_X+7)/8,(ParticleDIM_Y+7)/8,1);
+        RenderTexture.active = particleRenderTexture;
+        particleTexture.ReadPixels(new Rect(0, 0, particleRenderTexture.width, particleRenderTexture.height), 0, 0);
         particleTexture.Apply();
         // compute.Dispatch(plotTemperature,(DIM_X+7)/8,(DIM_Y+7)/8,1);
 
@@ -189,27 +271,31 @@ public class LbmSwimmer2D : MonoBehaviour
         int DIM = Mathf.Max(DIM_X,DIM_Y);
         if(debugMode)
         {
-            if(debugFrame)
-            {
-                compute.Dispatch(collisions,(DIM_X+7)/8,(DIM_Y+7)/8,1);
-                compute.Dispatch(streaming,(DIM_X+7)/8,(DIM_Y+7)/8,1);
-                compute.Dispatch(boundaries,(DIM+63)/64,1,1);
-                compute.Dispatch(immersedBoundary,(particleCount+63)/64,1,1);
+            debugMode = false;
                 roundParticleSmallDataBuffer.GetData(debugSmallData);
-                print(debugSmallData[0].volume);
-                print(debugSmallData[0].perimeterPointCount);
-                print(debugSmallData[0].pos);
-                print(debugSmallData[0].vel);
-                print(debugSmallData[0].forceFromCollisions);
-                print(debugSmallData[0].forceFromFluid);
-                // roundParticleRoundParticlePerimeterFluidVelBuffer.GetData(debugFluidVel);
-                roundParticleRoundParticlePerimeterPosBuffer.GetData(debugFluidVel);
-                foreach(Vector2 vel in debugFluidVel)
-                {
-                    print(vel);
-                }
-                debugFrame = false;
-            }
+                int particleIndex = UnityEngine.Random.Range(0,particleCount);
+                print((debugSmallData[particleIndex].radius*debugSmallData[particleIndex].vel)/((2*tauf-1)*6));
+            // if(debugFrame)
+            // {
+            //     compute.Dispatch(collisions,(DIM_X+7)/8,(DIM_Y+7)/8,1);
+            //     compute.Dispatch(streaming,(DIM_X+7)/8,(DIM_Y+7)/8,1);
+            //     // compute.Dispatch(boundaries,(DIM+63)/64,1,1);
+            //     if(particleCount > 0)compute.Dispatch(immersedBoundary,(particleCount+63)/64,1,1);
+            //     roundParticleSmallDataBuffer.GetData(debugSmallData);
+            //     print(debugSmallData[0].volume);
+            //     print(debugSmallData[0].perimeterPointCount);
+            //     print(debugSmallData[0].pos);
+            //     print(debugSmallData[0].vel);
+            //     print(debugSmallData[0].forceFromCollisions);
+            //     print(debugSmallData[0].forceFromFluid);
+            //     // roundParticleRoundParticlePerimeterFluidVelBuffer.GetData(debugFluidVel);
+            //     roundParticleRoundParticlePerimeterPosBuffer.GetData(debugFluidVel);
+            //     foreach(Vector2 vel in debugFluidVel)
+            //     {
+            //         print(vel);
+            //     }
+            //     debugFrame = false;
+            // }
         }
         else
         {
@@ -217,19 +303,67 @@ public class LbmSwimmer2D : MonoBehaviour
             {
                 compute.Dispatch(collisions,(DIM_X+7)/8,(DIM_Y+7)/8,1);
                 compute.Dispatch(streaming,(DIM_X+7)/8,(DIM_Y+7)/8,1);
-                compute.Dispatch(boundaries,(DIM+63)/64,1,1);
-                compute.Dispatch(immersedBoundary,(particleCount+63)/64,1,1);
+                // compute.Dispatch(boundaries,(DIM+63)/64,1,1);
+                if(particleCount > 0)compute.Dispatch(immersedBoundary,(particleCount+63)/64,1,1);
             }
         }
+
+        vfx.SetFloat("VelocityScale",((10f/(float)DIM_Y) * loopCount / Time.deltaTime) * Time.fixedDeltaTime/Time.deltaTime);
         compute.Dispatch(plotSpeed,(DIM_X+7)/8,(DIM_Y+7)/8,1);
         RenderTexture.active = renderTexture;
         plotTexture.ReadPixels(new Rect(0, 0, renderTexture.width, renderTexture.height), 0, 0);
         plotTexture.Apply();
-        compute.Dispatch(plotParticle,(DIM_X+7)/8,(DIM_Y+7)/8,1);
-        RenderTexture.active = renderTexture;
-        particleTexture.ReadPixels(new Rect(0, 0, renderTexture.width, renderTexture.height), 0, 0);
+        compute.Dispatch(plotParticle,(ParticleDIM_X+7)/8,(ParticleDIM_Y+7)/8,1);
+        RenderTexture.active = particleRenderTexture;
+        particleTexture.ReadPixels(new Rect(0, 0, particleRenderTexture.width, particleRenderTexture.height), 0, 0);
         particleTexture.Apply();
         
+        if(showGraph)
+        {
+            uv.GetData(uvBuffer);
+            // row fft
+            List<Complex[]> uColumnsFfted = new List<Complex[]>();
+            List<Complex[]> vColumnsFfted = new List<Complex[]>();
+            for (int j = 0; j < DIM_Y; j++)
+            {
+                double[] uRow = new double[DIM_X];
+                double[] vRow = new double[DIM_X];
+                for (int i = 0; i < DIM_X; i++)
+                {
+                    uRow[i] = (double)uvBuffer[(i + j*DIM_X) * 2 + 0];
+                    vRow[i] = (double)uvBuffer[(i + j*DIM_X) * 2 + 1];
+                }
+                Complex[] uRowFfted = FftSharp.Transform.FFT(uRow);
+                Complex[] vRowFfted = FftSharp.Transform.FFT(vRow);
+                for (int i = 0; i < DIM_X; i++)
+                {
+                    if(j==0)
+                    {
+                        uColumnsFfted.Add(new Complex[DIM_Y]);
+                        vColumnsFfted.Add(new Complex[DIM_Y]);
+                    }
+                    uColumnsFfted[i][j] = uRowFfted[i];
+                    vColumnsFfted[i][j] = vRowFfted[i];
+                }
+                if(uRowFfted.Length != DIM_X) print("wtf");
+            }
+            double[] energySpectrum = new double[qArray.Length];
+            for (int i = 0; i < energySpectrum.Length; i++)
+            {
+                energySpectrum[i] = 0.0;
+            }
+            for (int i = 0; i < DIM_X; i++)
+            {
+                FftSharp.Transform.FFT(uColumnsFfted[i]);
+                FftSharp.Transform.FFT(vColumnsFfted[i]);
+                for (int j = 0; j < DIM_Y; j++)
+                {
+                    energySpectrum[gridPosToQIndex[i + j*DIM_X]] += uColumnsFfted[i][j].MagnitudeSquared + vColumnsFfted[i][j].MagnitudeSquared;
+                }
+            }
+
+            graph.Plot(qArray,energySpectrum);
+        }
     }
 
     private void OnValidate() 
@@ -242,5 +376,8 @@ public class LbmSwimmer2D : MonoBehaviour
         compute.SetFloat("zeta",zeta);
         compute.SetFloat("squirmerBeta",squirmerBeta);
         compute.SetFloat("squirmerSpeedConstant",squirmerSpeedConstant);
+
+        if(showGraph) graph.transform.gameObject.SetActive(true);
+        else graph.transform.gameObject.SetActive(false);
     }
 }
