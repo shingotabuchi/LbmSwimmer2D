@@ -1,0 +1,362 @@
+#pragma kernel Init
+#pragma kernel PlotDensity
+#pragma kernel Stream
+#pragma kernel CalcPressureAndUvw
+#pragma kernel Collision
+
+static float cc = 1.0;
+static float c_squ = 1.0/3.0;
+static float R = 1.0;
+static float b = 4.0;
+static float a = 1.0;
+static float t_k[] = {
+    1.0 / 3.0,
+    1.0 / 18.0, 1.0 / 18.0, 1.0 / 18.0, 1.0 / 18.0, 1.0 / 18.0, 1.0 / 18.0,
+    1.0 / 36.0, 1.0 / 36.0, 1.0 / 36.0, 1.0 / 36.0, 1.0 / 36.0, 1.0 / 36.0,
+    1.0 / 36.0, 1.0 / 36.0, 1.0 / 36.0, 1.0 / 36.0, 1.0 / 36.0, 1.0 / 36.0
+};
+static float xc[] = {
+    0.0,
+    1.0, -1.0, 0.0, 0.0, 0.0, 0.0,
+    1.0, 1.0, -1.0, -1.0, 1.0, -1.0,
+    1.0, -1.0, 0.0, 0.0, 0.0, 0.0
+};
+static float yc[] = {
+    0.0,
+    0.0, 0.0, 1.0, -1.0, 0.0, 0.0,
+    1.0, -1.0, 1.0, -1.0, 0.0, 0.0,
+    0.0, 0.0, 1.0, 1.0, -1.0, -1.0
+};
+static float zc[] = {
+    0.0,
+    0.0, 0.0, 0.0, 0.0, 1.0, -1.0,
+    0.0, 0.0, 0.0, 0.0, 1.0, 1.0,
+    -1.0, -1.0, 1.0, -1.0, 1.0, -1.0
+};
+static int ex[] = {
+    0,
+    1, -1, 0, 0, 0, 0,
+    1, 1, -1, -1, 1, -1,
+    1, -1, 0, 0, 0, 0
+};
+static int ey[] = {
+    0,
+    0, 0, 1, -1, 0, 0,
+    1, -1, 1, -1, 0, 0,
+    0, 0, 1, 1, -1, -1
+};
+static int ez[] = {
+    0,
+    0, 0, 0, 0, 1, -1,
+    0, 0, 0, 0, 1, 1,
+    -1, -1, 1, -1, 1, -1
+};
+static int opp[] = {0,2,1,4,3,6,5,10,9,8,7,14,13,12,11,18,17,16,15};
+static float RR = 15.0;
+
+// EOSから決まる
+float TT0,rho_h,rho_l;
+float rhow,tauc;
+float minRho,maxRho;
+int lx,ly,lz;
+int plotXIndex;
+
+RWTexture2D<float4> renderTexture;
+RWStructuredBuffer<float> uvw,rho,ff,psx;
+RWStructuredBuffer<int> obst;
+static float4 colorsOfMap[7] = 
+{
+    float4(0,0,0,1),
+    float4(0,0,1,1),
+    float4(0,1,1,1),
+    float4(0,1,0,1),
+    float4(1,1,0,1),
+    float4(1,0,0,1),
+    float4(1,1,1,1),
+};
+static float colorPerc = 1.0 / (7.0-1.0);
+float4 ColorMap(float val, float maxVal)
+{
+    if(val > maxVal) val = maxVal;
+    float valPerc = val / maxVal;// value%
+    int blockIdx = (int)(valPerc / colorPerc);// Idx of 
+    float valPercResidual = valPerc - (blockIdx*colorPerc);//remove the part represented of block 
+    float percOfColor = valPercResidual / colorPerc;// % of color of this block that will be filled
+    float4 cTarget = colorsOfMap[blockIdx];
+    float deltaR = 0;
+    float deltaG = 0;
+    float deltaB = 0;
+
+    if(blockIdx != 6)
+    {
+        float4 cNext = colorsOfMap[blockIdx + 1];
+        deltaR =cNext.x - cTarget.x;
+        deltaG =cNext.y - cTarget.y;
+        deltaB =cNext.z - cTarget.z;
+    }
+
+    float R = cTarget.r + (deltaR * percOfColor);
+    float G = cTarget.g + (deltaG * percOfColor);
+    float B = cTarget.b + (deltaB * percOfColor);
+
+    return float4(R,G,B,1.0);
+}
+int BufferIndex(int x, int y, int z)
+{
+    return x + y*lx + z*lx*ly;
+}
+
+int BufferIndexUvw(int bufferIndex, int uvwIndex)
+{
+    return bufferIndex * 3 + uvwIndex;
+}
+
+int BufferIndexK(int bufferIndex, int k)
+{
+    return bufferIndex * 19 + k;
+}
+
+int BufferIndexKTmp(int bufferIndex, int k)
+{
+    return lx*ly*lz*19 + BufferIndexK(bufferIndex,k);
+}
+
+// n+m>=0
+int UMod(int n, int m)
+{
+    return (int)((uint)(n + m)%(uint)m);
+}
+
+[numthreads(8, 8, 8)]
+void Init(uint3 id : SV_DispatchThreadID)
+{
+    int k;
+    int x = (int)id.x;
+    int y = (int)id.y;
+    int z = (int)id.z;
+    int index = BufferIndex(x,y,z);
+    obst[index] = 0;
+    if(z == 0) obst[index] = 1;
+    int indexU = BufferIndexUvw(index,0);
+    int indexV = BufferIndexUvw(index,1);
+    int indexW = BufferIndexUvw(index,2);
+    uvw[indexU] = 0.0;
+    uvw[indexV] = 0.0;
+    uvw[indexW] = 0.0;
+    float u = uvw[indexU];
+    float v = uvw[indexV];
+    float w = uvw[indexW];
+    rho[index] = rho_l;
+    float xf = (float)(x-(int)((uint)lx/2));
+    float yf = (float)(y-(int)((uint)ly/2));
+    float zf = (float)z - RR/3.0;
+    if(xf*xf + yf*yf + zf*zf < RR*RR)
+    {
+        rho[index] = rho_h;
+    }
+    float u_squ = u*u + v*v + w*w;
+    for(k = 0; k < 19; k++)
+    {
+        float u_n = xc[k] * u + yc[k] * v + zc[k] * w;
+        float feq = 
+        t_k[k]*rho[index] 
+        *(
+            cc*u_n/c_squ + (u_n*cc)*(u_n*cc)/(2.0*c_squ*c_squ)
+            - u_squ/(2.0*c_squ))
+        +t_k[k]*rho[index];
+        
+        ff[BufferIndexK(index,k)] = feq;
+    }
+    // rho[index] = 0;
+    // for(k = 0; k < 19; k++)
+    // {
+    //     int indexK = BufferIndexK(index,k);
+    //     rho[index] += ff[indexK];
+    // }
+}
+
+[numthreads(8, 8, 1)]
+void PlotDensity(uint3 id : SV_DispatchThreadID)
+{
+    int x = plotXIndex;
+    int y = (int)id.x;
+    int z = (int)id.y;
+    float rhof = rho[BufferIndex(x,y,z)];
+    renderTexture[id.xy] = ColorMap(rhof-minRho,maxRho-minRho);
+}
+
+[numthreads(8, 8, 8)]
+void Stream(uint3 id : SV_DispatchThreadID)
+{
+    int k;
+    int x = (int)id.x;
+    int y = (int)id.y;
+    int z = (int)id.z;
+
+    int index = BufferIndex(x,y,z);
+    for(k = 0; k < 19; k++)
+    {
+        int xTmp = UMod(x + ex[k],lx);
+        int yTmp = UMod(y + ey[k],ly);
+        int zTmp = UMod(z + ez[k],lz);
+        int indexTmp = BufferIndex(xTmp,yTmp,zTmp);
+        ff[BufferIndexKTmp(indexTmp,k)] = ff[BufferIndexK(index,k)];
+    }
+}
+
+[numthreads(8, 8, 8)]
+void CalcPressureAndUvw(uint3 id : SV_DispatchThreadID)
+{
+    float Tc = 0.3773*a/(b*R);
+    float TT= TT0 *Tc;
+    int k;
+    int x = (int)id.x;
+    int y = (int)id.y;
+    int z = (int)id.z;
+    int index = BufferIndex(x,y,z);
+    int indexU = BufferIndexUvw(index,0);
+    int indexV = BufferIndexUvw(index,1);
+    int indexW = BufferIndexUvw(index,2);
+    
+    uvw[indexU] = 0.0;
+    uvw[indexV] = 0.0; 
+    uvw[indexW] = 0.0; 
+    rho[index] = 0.0;
+
+    for(k = 0; k < 19; k++)
+    {
+        int indexKTmp = BufferIndexKTmp(index,k);
+        int indexK = BufferIndexK(index,k);
+        ff[indexK] = ff[indexKTmp];
+    }
+    
+    if(obst[index] != 0)
+    {
+        // rho[index] = rhow;
+        return;
+    }
+
+    for(k = 0; k < 19; k++)
+    {
+        int indexK = BufferIndexK(index,k);
+        rho[index] += ff[indexK];
+        uvw[indexU] += ff[indexK] * xc[k];
+        uvw[indexV] += ff[indexK] * yc[k];
+        uvw[indexW] += ff[indexK] * zc[k];
+    }
+
+    float G1 = 1.0/3.0;
+    float rhof = rho[index];
+    float oneMinusRhof = 1-rhof;
+    if(rhof != 0.0)
+    {
+        float f1 = 
+        R*TT*(
+            1.0 + (4.0*rhof - 2.0*rhof*rhof)/(oneMinusRhof*oneMinusRhof*oneMinusRhof)
+        )-a*rhof - 1.0/3.0;
+        psx[index] = sqrt(abs(6.0 * rhof * f1 / G1));
+        // pressure[index] = rhof/3.0 + G1/6.0 * psx[index]*psx[index]; 
+    }
+    uvw[indexU] /= rho[index];
+    uvw[indexV] /= rho[index];
+    uvw[indexW] /= rho[index];
+}
+
+[numthreads(8, 8, 8)]
+void Collision(uint3 id : SV_DispatchThreadID)
+{
+    int k;
+    float Tc = 0.3773*a/(b*R);
+    float TT= TT0 *Tc;
+    float oneMinusRhow = 1-rhow;
+    float f1 = 
+    R*TT*(
+        1.0 + (4.0*rhow - 2.0*rhow*rhow)/(oneMinusRhow*oneMinusRhow*oneMinusRhow)
+    )-a*rhow - 1.0/3.0;
+    float G1 = 1.0/3.0;
+    float psx_w = sqrt(abs(6.0 * rhow * f1 / G1));
+
+    int x = (int)id.x;
+    int y = (int)id.y;
+    int z = (int)id.z;
+    int index = BufferIndex(x,y,z);
+    float temp[19];
+    int indexU = BufferIndexUvw(index,0);
+    int indexV = BufferIndexUvw(index,1);
+    int indexW = BufferIndexUvw(index,2);
+    float u = uvw[indexU];
+    float v = uvw[indexV];
+    float w = uvw[indexW];
+
+    float Fx = 0.0;
+    float Fy = 0.0;
+    float Fz = 0.0;
+
+    if(obst[index] != 0)
+    {
+
+        for(k = 0; k < 19; k++)
+        {
+            int indexK = BufferIndexK(index,k);
+            temp[k] = ff[indexK];
+        }
+        for(k = 0; k < 19; k++)
+        {
+            int indexK = BufferIndexK(index,opp[k]);
+            ff[indexK] = temp[k];
+        }
+    }
+    else
+    {
+        float sumX = 0.0;
+        float sumY = 0.0;
+        float sumZ = 0.0;
+        for(k = 0; k < 19; k++)
+        {
+            int xTmp = UMod(x + ex[k],lx);
+            int yTmp = UMod(y + ey[k],ly);
+            int zTmp = UMod(z + ez[k],lz);
+            int indexTmp = BufferIndex(xTmp,yTmp,zTmp);
+            if(obst[indexTmp] != 0)
+            {
+                sumX += t_k[k]*xc[k];
+                sumY += t_k[k]*yc[k];
+                sumZ += t_k[k]*zc[k];
+            }
+            else
+            {
+                Fx += t_k[k]*xc[k] * psx[indexTmp];
+                Fy += t_k[k]*yc[k] * psx[indexTmp];
+                Fz += t_k[k]*zc[k] * psx[indexTmp];
+            }
+        }
+
+        float Sx = -G1 * sumX * psx[index] * psx_w;
+        float Sy = -G1 * sumY * psx[index] * psx_w;
+        float Sz = -G1 * sumZ * psx[index] * psx_w;
+
+        Fx = -G1 * psx[index] * Fx;
+        Fy = -G1 * psx[index] * Fy;
+        Fz = -G1 * psx[index] * Fz;
+
+        u += tauc * (Fx + Sx)/rho[index];
+        v += tauc * (Fy + Sy)/rho[index];
+        w += tauc * (Fz + Sz)/rho[index];
+
+        float u_squ = u*u + v*v + w*w; 
+
+        for(k = 0; k < 19; k++)
+        {
+            float u_n = xc[k]*u + yc[k]*v + zc[k]*w;
+            float feq = 
+            t_k[k]*rho[index] 
+            *(
+                cc*u_n/c_squ + (u_n*cc)*(u_n*cc)/(2.0*c_squ*c_squ)
+                - u_squ/(2.0*c_squ)
+            ) + t_k[k]*rho[index];
+            int indexK = BufferIndexK(index,k);
+            ff[indexK] = feq + (1.0-1.0/tauc)*( ff[indexK] - feq );
+        }
+    }
+
+}
