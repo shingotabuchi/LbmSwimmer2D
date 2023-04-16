@@ -1,6 +1,7 @@
 #pragma kernel Init
 #pragma kernel PlotDensity
 #pragma kernel Stream
+#pragma kernel Boundary
 #pragma kernel CalcPressureAndUvw
 #pragma kernel Collision
 
@@ -52,10 +53,10 @@ static int ez[] = {
     -1, -1, 1, -1, 1, -1
 };
 static int opp[] = {0,2,1,4,3,6,5,10,9,8,7,14,13,12,11,18,17,16,15};
-static float RR = 15.0;
+static float RR = 40.0;
 
 // EOSから決まる
-float TT0,rho_h,rho_l;
+float TT0,rho_h,rho_l,rho0;
 float rhow,tauc;
 float minRho,maxRho;
 int lx,ly,lz;
@@ -146,14 +147,7 @@ void Init(uint3 id : SV_DispatchThreadID)
     float u = uvw[indexU];
     float v = uvw[indexV];
     float w = uvw[indexW];
-    rho[index] = rho_l;
-    float xf = (float)(x-(int)((uint)lx/2));
-    float yf = (float)(y-(int)((uint)ly/2));
-    float zf = (float)z - RR/3.0;
-    if(xf*xf + yf*yf + zf*zf < RR*RR)
-    {
-        rho[index] = rho_h;
-    }
+    rho[index] = rho0;
     float u_squ = u*u + v*v + w*w;
     for(k = 0; k < 19; k++)
     {
@@ -256,12 +250,10 @@ void CalcPressureAndUvw(uint3 id : SV_DispatchThreadID)
         )-a*rhof - 1.0/3.0;
         psx[index] = sqrt(abs(6.0 * rhof * f1 / G1));
         // pressure[index] = rhof/3.0 + G1/6.0 * psx[index]*psx[index]; 
-    
-        uvw[indexU] /= rho[index];
-        uvw[indexV] /= rho[index];
-        uvw[indexW] /= rho[index];
     }
-    
+    uvw[indexU] /= rho[index];
+    uvw[indexV] /= rho[index];
+    uvw[indexW] /= rho[index];
 }
 
 [numthreads(8, 8, 8)]
@@ -360,4 +352,5 @@ void Collision(uint3 id : SV_DispatchThreadID)
             ff[indexK] = feq + (1.0-1.0/tauc)*( ff[indexK] - feq );
         }
     }
+
 }

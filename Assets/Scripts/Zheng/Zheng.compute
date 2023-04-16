@@ -75,13 +75,105 @@ float4 ColorMap(float val, float maxVal)
     return float4(R,G,B,1.0);
 }
 
+void Collide(uint3 id,bool initial)
+{
+    int i = (int)id.x;
+    int j = (int)id.y;
+    int k,i1,j1;
+
+    float laplace_temp=0.0;
+    float gradx_temp=0.0;
+    float grady_temp=0.0;
+    for(k = 0; k < 9; k++)
+    {
+        int i1=((uint)(i+cx[k]+DIM)) % (uint)DIM;
+        int j1=((uint)(j+cy[k]+DIM)) % (uint)DIM;
+        laplace_temp+=laplacestencil[k]*phaseRho[i1 + j1*DIM];
+        gradx_temp+=gradstencilx[k]*phaseRho[i1 + j1*DIM];
+        grady_temp+=gradstencily[k]*phaseRho[i1 + j1*DIM];
+    }
+
+    phaseRho[DIMSqrd + i + j*DIM] = 1.0;
+    uv[(i + j * DIM)*2 + 0] = 0.0; 
+    uv[(i + j * DIM)*2 + 1] = 0.0;
+    float phase_temp=phaseRho[i + j*DIM];
+    float phase_square=phase_temp*phase_temp;
+    float chemical_pot= aconst*(-phase_temp+phase_temp*phase_temp*phase_temp)-kconst*laplace_temp;
+    float dense_temp=phaseRho[DIMSqrd + i + j*DIM];
+    float pressure_bulk = dense_temp/3.0+aconst*(-0.5*phase_square+3.0/4.0*phase_square*phase_square)-kconst*phase_temp*laplace_temp;
+    if(!initial)
+    {
+        phaseRho[DIMSqrd + i + j*DIM]=0.0;
+        for(k=0;k<9;k++)
+        {
+            phaseRho[DIMSqrd + i + j*DIM]+=f[k + (i + j*DIM)*9];
+            uv[(i + j * DIM)*2 + 0]+=f[k + (i + j*DIM)*9]*cx[k];
+            uv[(i + j * DIM)*2 + 1]+=f[k + (i + j*DIM)*9]*cy[k];
+        }
+        dense_temp = phaseRho[DIMSqrd + i + j*DIM];
+        pressure_bulk = dense_temp/3.0+aconst*(-0.5*phase_square+3.0/4.0*phase_square*phase_square)-kconst*phase_temp*laplace_temp;
+
+
+
+        uv[(i + j * DIM)*2 + 0]=(uv[(i + j * DIM)*2 + 0] + 0.5 * (chemical_pot*gradx_temp))/phaseRho[DIMSqrd + i + j*DIM];
+        uv[(i + j * DIM)*2 + 1]=(uv[(i + j * DIM)*2 + 1] + 0.5 * (chemical_pot*grady_temp))/phaseRho[DIMSqrd + i + j*DIM];
+    }
+    float ux_temp=uv[(i + j * DIM)*2 + 0];
+    float uy_temp=uv[(i + j * DIM)*2 + 1];
+    // float sum=0.0;
+    // float sum_phase=0.0;
+    float feqeq,geqeq;
+    float tau_rho=tauGas+(phase_temp+1.0)/2.0*(tauLiq-tauGas);
+    float omega_rho = 1.0/tau_rho;
+    float omega_phi = omegaPhi;
+    if(initial)
+    {
+        omega_rho = 1.0;
+        omega_phi = 1.0;
+    }
+
+    for (k=0; k<9; k++)
+    {
+        if(k == 0)
+        {
+            feqeq = weights[k] * dense_temp * (
+                1.0 + 3.0*(cx[k]*ux_temp+cy[k]*uy_temp)
+                + 4.5*(cx[k]*ux_temp+cy[k]*uy_temp)*(cx[k]*ux_temp+cy[k]*uy_temp)
+                -1.5 * (ux_temp*ux_temp + uy_temp*uy_temp)
+            )
+            - (15.0/4.0) * weights[k] * phase_temp * chemical_pot;
+
+            geqeq= phase_temp - (5.0/9.0) * gammaconst * chemical_pot;
+        }
+        else
+        {
+            feqeq = weights[k] * dense_temp * (
+                1.0 + 3.0*(cx[k]*ux_temp+cy[k]*uy_temp)
+                + 4.5*(cx[k]*ux_temp+cy[k]*uy_temp)*(cx[k]*ux_temp+cy[k]*uy_temp)
+                -1.5 * (ux_temp*ux_temp + uy_temp*uy_temp)
+            )
+            +weights[k] * 3.0 * phase_temp * chemical_pot;
+
+            geqeq=weights[k]*(gammaconst*chemical_pot+3.0*phase_temp*(cx[k]*ux_temp+cy[k]*uy_temp));
+        }
+        float forcingTerm = chemical_pot * weights[k] * (1.0 - 0.5 * omega_rho) * (
+            3.0*((cx[k] - ux_temp) * gradx_temp + (cy[k] - uy_temp) * grady_temp)
+            +9.0 * (cx[k]*ux_temp+cy[k]*uy_temp) * (cx[k] * gradx_temp + cy[k] * grady_temp)
+        );
+        f[DIMSqrd9 + k + (i + j*DIM)*9]=f[k + (i + j*DIM)*9]*(1.0-omega_rho)+omega_rho*feqeq + forcingTerm;
+        g[DIMSqrd9 + k + (i + j*DIM)*9]=g[k + (i + j*DIM)*9]*(1.0-omega_phi)+omega_phi*geqeq;
+        f[k + (i + j*DIM)*9]=f[k + (i + j*DIM)*9]*(1.0-omega_rho)+omega_rho*feqeq;
+        g[k + (i + j*DIM)*9]=g[k + (i + j*DIM)*9]*(1.0-omega_phi)+omega_phi*geqeq;
+    }
+}
+
 [numthreads(8, 8, 1)]
 void Init(uint3 id : SV_DispatchThreadID)
 {
     int i = (int)id.x;
     int j = (int)id.y;
-    // if((abs(i - DIM/2.0) <= 20) && (j < 40) && (j >= 1))
-    if((abs(i - DIM/2.0) <= 20) && (abs(j - DIM/2.0) <= 20))
+    if((abs(i - DIM/2.0) <= 20) && (j < 40) && (j >= 1))
+    // if((abs(i - DIM/2.0) <= 20) && (abs(j - DIM/2.0) <= 20))
     {
         phaseRho[i + j*DIM] = 1.0;
     }
@@ -102,58 +194,7 @@ void WallInit(uint3 id : SV_DispatchThreadID)
 [numthreads(8, 8, 1)]
 void BulkNodeInit(uint3 id : SV_DispatchThreadID)
 {
-    
-    int i = (int)id.x;
-    int j = (int)id.y;
-    int k,i1,j1;
-    float laplace_temp=0.0;
-    float gradx_temp=0.0;
-    float grady_temp=0.0;
-    for(k = 0; k < 9; k++)
-    {
-        int i1=((uint)(i+cx[k]+DIM)) % (uint)DIM;
-        int j1=((uint)(j+cy[k]+DIM)) % (uint)DIM;
-        laplace_temp+=laplacestencil[k]*phaseRho[i1 + j1*DIM];
-        gradx_temp+=gradstencilx[k]*phaseRho[i1 + j1*DIM];
-        grady_temp+=gradstencily[k]*phaseRho[i1 + j1*DIM];
-    }
-
-    phaseRho[DIMSqrd + i + j*DIM] = 1.0;
-    uv[(i + j * DIM)*2 + 0] = 0.0; 
-    uv[(i + j * DIM)*2 + 1] = 0.0;
-
-    float phase_temp=phaseRho[i + j*DIM];
-    float dense_temp=phaseRho[DIMSqrd + i + j*DIM];
-    float ux_temp=uv[(i + j * DIM)*2 + 0];
-    float uy_temp=uv[(i + j * DIM)*2 + 1];
-    float feq;
-    float geq;
-    float sum=0.0;
-    float sum_phase=0.0;
-    float phase_square=phase_temp*phase_temp;
-    float pressure_bulk=dense_temp/3.0+aconst*(-0.5*phase_square+3.0/4.0*phase_square*phase_square)-kconst*phase_temp*laplace_temp;
-    float chemical_pot=gammaconst*(aconst*(-phase_temp+phase_temp*phase_temp*phase_temp)-kconst*laplace_temp);
-
-    for (k=1; k<9; k++)
-    {
-        feq=weights[k]*(3.0*pressure_bulk+3.0*dense_temp*(cx[k]*ux_temp+cy[k]*uy_temp)
-                        +4.5*dense_temp*((cx[k]*cx[k]-1.0/3.0)*ux_temp*ux_temp+(cy[k]*cy[k]-1.0/3.0)*uy_temp*uy_temp+2.0*ux_temp*uy_temp*cx[k]*cy[k]))
-            +kconst*(wxx[k]*gradx_temp*gradx_temp+wyy[k]*grady_temp*grady_temp+wxy[k]*gradx_temp*grady_temp);
-        geq=weights[k]*(3.0*chemical_pot+3.0*phase_temp*(cx[k]*ux_temp+cy[k]*uy_temp)
-                        +4.5*phase_temp*((cx[k]*cx[k]-1.0/3.0)*ux_temp*ux_temp+(cy[k]*cy[k]-1.0/3.0)*uy_temp*uy_temp
-                                            +2.0*ux_temp*uy_temp*cx[k]*cy[k]));
-        sum+=feq;
-        sum_phase+=geq;
-
-        f[k + (i + j*DIM)*9]=feq;
-        g[k + (i + j*DIM)*9]=geq;
-        // f[DIMSqrd9 + k + (i + j*DIM)*9]=feq;
-        // g[DIMSqrd9 + k + (i + j*DIM)*9]=geq;
-    }
-    f[0 + (i + j*DIM)*9]=dense_temp-sum;
-    g[0 + (i + j*DIM)*9]=phase_temp-sum_phase;
-    // f[DIMSqrd9 + 0 + (i + j*DIM)*9]=dense_temp-sum;
-    // g[DIMSqrd9 + 0 + (i + j*DIM)*9]=phase_temp-sum_phase;
+    Collide(id,true);
 }
 
 [numthreads(8, 8, 1)]
@@ -229,68 +270,7 @@ void BouncebackBoundary(uint3 id : SV_DispatchThreadID)
 [numthreads(8, 8, 1)]
 void Collision(uint3 id : SV_DispatchThreadID)
 {
-    
-    int i = (int)id.x;
-    int j = (int)id.y;
-    int k,i1,j1;
-    //Construction equilibrium
-    phaseRho[DIMSqrd + i + j*DIM]=0.0;
-    uv[(i + j * DIM)*2 + 0]=0.0;
-    uv[(i + j * DIM)*2 + 1]=0.0;
-
-    for(k=0;k<9;k++)
-    {
-        phaseRho[DIMSqrd + i + j*DIM]+=f[k + (i + j*DIM)*9];
-        uv[(i + j * DIM)*2 + 0]+=f[k + (i + j*DIM)*9]*cx[k];
-        uv[(i + j * DIM)*2 + 1]+=f[k + (i + j*DIM)*9]*cy[k];
-    }
-
-    uv[(i + j * DIM)*2 + 0]=uv[(i + j * DIM)*2 + 0]/phaseRho[DIMSqrd + i + j*DIM];
-    uv[(i + j * DIM)*2 + 1]=uv[(i + j * DIM)*2 + 1]/phaseRho[DIMSqrd + i + j*DIM];
-
-
-    float laplace_temp=0.0;
-    float gradx_temp=0.0;
-    float grady_temp=0.0;
-    for(k=0;k<9;k++)
-    {
-        int i1=(int)(((uint)(i+cx[k]+DIM)) % (uint)DIM);
-        int j1=(int)(((uint)(j+cy[k]+DIM)) % (uint)DIM);
-        laplace_temp+=laplacestencil[k]*phaseRho[i1 + j1*DIM];
-        gradx_temp+=gradstencilx[k]*phaseRho[i1 + j1*DIM];
-        grady_temp+=gradstencily[k]*phaseRho[i1 + j1*DIM];
-    }
-
-    float phase_temp=phaseRho[i + j*DIM];
-    float dense_temp=phaseRho[DIMSqrd + i + j*DIM];
-    float ux_temp=uv[(i + j * DIM)*2 + 0];
-    float uy_temp=uv[(i + j * DIM)*2 + 1];
-    float sum=0.0;
-    float sum_phase=0.0;
-    float phase_square=phase_temp*phase_temp;
-    float pressure_bulk=dense_temp/3.0+aconst*(-0.5*phase_square+3.0/4.0*phase_square*phase_square)-kconst*phase_temp*laplace_temp;
-    float chemical_pot=gammaconst*(aconst*(-phase_temp+phase_temp*phase_temp*phase_temp)-kconst*laplace_temp);
-    float feqeq,geqeq;
-    float tau_rho=tauGas+(phase_temp+1.0)/2.0*(tauLiq-tauGas);
-    float omega_rho=1.0/tau_rho;
-    for (k=1; k<9; k++)
-    {
-        feqeq=weights[k]*(3.0*pressure_bulk+3.0*dense_temp*(cx[k]*ux_temp+cy[k]*uy_temp)
-                        +4.5*dense_temp*((cx[k]*cx[k]-1.0/3.0)*ux_temp*ux_temp+(cy[k]*cy[k]-1.0/3.0)*uy_temp*uy_temp+2.0*ux_temp*uy_temp*cx[k]*cy[k]))
-        +kconst*(wxx[k]*gradx_temp*gradx_temp+wyy[k]*grady_temp*grady_temp+wxy[k]*gradx_temp*grady_temp);
-        geqeq=weights[k]*(3.0*chemical_pot+3.0*phase_temp*(cx[k]*ux_temp+cy[k]*uy_temp)
-                        +4.5*phase_temp*((cx[k]*cx[k]-1.0/3.0)*ux_temp*ux_temp+(cy[k]*cy[k]-1.0/3.0)*uy_temp*uy_temp+2.0*ux_temp*uy_temp*cx[k]*cy[k]));
-        sum+=feqeq;
-        sum_phase+=geqeq;
-        f[DIMSqrd9 + k + (i + j*DIM)*9]=f[k + (i + j*DIM)*9]*(1.0-omega_rho)+omega_rho*feqeq;
-        g[DIMSqrd9 + k + (i + j*DIM)*9]=g[k + (i + j*DIM)*9]*(1.0-omegaPhi)+omegaPhi*geqeq;
-    }
-
-    feqeq=dense_temp-sum;
-    geqeq=phase_temp-sum_phase;
-
-    f[DIMSqrd9 + 0 + (i + j*DIM)*9]=f[0 + (i + j*DIM)*9]*(1.0-omega_rho)+omega_rho*feqeq;
-    g[DIMSqrd9 + 0 + (i + j*DIM)*9]=g[0 + (i + j*DIM)*9]*(1.0-omegaPhi)+omegaPhi*geqeq;
+    Collide(id,false);
 }
 
 [numthreads(8, 8, 1)]
