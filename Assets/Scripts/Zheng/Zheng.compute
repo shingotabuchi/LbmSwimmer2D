@@ -9,8 +9,10 @@
 #pragma kernel InitPhase
 #pragma kernel Streaming
 int DIM;
-float tauLiq,tauGas;
-float omegaPhi;
+// float tauLiq,tauGas;
+// float omegaPhi;
+float tau_phi;
+float tau_rho;
 float minSpeed,maxSpeed;
 RWTexture2D<float4> renderTexture;
 RWStructuredBuffer<float> uv,f,g,phaseRho;
@@ -19,6 +21,8 @@ float minPhase,maxPhase;
 float wallGradient;
 float aconst;
 float kconst;
+float initPhase;
+float initRho;
 float gammaconst;
 static float weights[]={4.0/9.0,1.0/9.0,1.0/9.0,1.0/9.0,1.0/9.0,1.0/36.0,1.0/36.0,1.0/36.0,1.0/36.0};
 static int cx[9] = {0,1,0,-1,0,1,-1,-1,1};
@@ -93,14 +97,13 @@ void Collide(uint3 id,bool initial)
         grady_temp+=gradstencily[k]*phaseRho[i1 + j1*DIM];
     }
 
-    phaseRho[DIMSqrd + i + j*DIM] = 1.0;
+    phaseRho[DIMSqrd + i + j*DIM] = initRho;
     uv[(i + j * DIM)*2 + 0] = 0.0; 
     uv[(i + j * DIM)*2 + 1] = 0.0;
     float phase_temp=phaseRho[i + j*DIM];
     float phase_square=phase_temp*phase_temp;
-    float chemical_pot= aconst*(-phase_temp+phase_temp*phase_temp*phase_temp)-kconst*laplace_temp;
+    float chemical_pot= aconst*(-phase_temp*initPhase*initPhase + phase_temp*phase_temp*phase_temp)-kconst*laplace_temp;
     float dense_temp=phaseRho[DIMSqrd + i + j*DIM];
-    float pressure_bulk = dense_temp/3.0+aconst*(-0.5*phase_square+3.0/4.0*phase_square*phase_square)-kconst*phase_temp*laplace_temp;
     if(!initial)
     {
         phaseRho[DIMSqrd + i + j*DIM]=0.0;
@@ -111,26 +114,26 @@ void Collide(uint3 id,bool initial)
             uv[(i + j * DIM)*2 + 1]+=f[k + (i + j*DIM)*9]*cy[k];
         }
         dense_temp = phaseRho[DIMSqrd + i + j*DIM];
-        pressure_bulk = dense_temp/3.0+aconst*(-0.5*phase_square+3.0/4.0*phase_square*phase_square)-kconst*phase_temp*laplace_temp;
-
-
 
         uv[(i + j * DIM)*2 + 0]=(uv[(i + j * DIM)*2 + 0] + 0.5 * (chemical_pot*gradx_temp))/phaseRho[DIMSqrd + i + j*DIM];
         uv[(i + j * DIM)*2 + 1]=(uv[(i + j * DIM)*2 + 1] + 0.5 * (chemical_pot*grady_temp))/phaseRho[DIMSqrd + i + j*DIM];
     }
+    float initPhaseSqrd =  initPhase*initPhase;
+    float pressure_bulk = dense_temp/3.0+(aconst/4.0)*(-2.0*phase_square*initPhaseSqrd + 3.0*phase_square*phase_square - initPhaseSqrd*initPhaseSqrd)-kconst*phase_temp*laplace_temp + (gradx_temp*gradx_temp + grady_temp*grady_temp)/2.0;
+
     float ux_temp=uv[(i + j * DIM)*2 + 0];
     float uy_temp=uv[(i + j * DIM)*2 + 1];
     // float sum=0.0;
     // float sum_phase=0.0;
     float feqeq,geqeq;
-    float tau_rho=tauGas+(phase_temp+1.0)/2.0*(tauLiq-tauGas);
+    // float tau_rho=tauGas+(phase_temp+1.0)/2.0*(tauLiq-tauGas);
     float omega_rho = 1.0/tau_rho;
-    float omega_phi = omegaPhi;
-    if(initial)
-    {
-        omega_rho = 1.0;
-        omega_phi = 1.0;
-    }
+    float omega_phi = 1.0/tau_phi;
+    // if(initial)
+    // {
+    //     omega_rho = 1.0;
+    //     omega_phi = 1.0;
+    // }
 
     for (k=0; k<9; k++)
     {
@@ -172,14 +175,14 @@ void Init(uint3 id : SV_DispatchThreadID)
 {
     int i = (int)id.x;
     int j = (int)id.y;
-    if((abs(i - DIM/2.0) <= 20) && (j < 40) && (j >= 1))
-    // if((abs(i - DIM/2.0) <= 20) && (abs(j - DIM/2.0) <= 20))
+    // if((abs(i - DIM/2.0) <= 20) && (j < 40) && (j >= 1))
+    if((abs(i - DIM/2.0) <= 20) && (abs(j - DIM/2.0) <= 20))
     {
-        phaseRho[i + j*DIM] = 1.0;
+        phaseRho[i + j*DIM] = initPhase;
     }
     else
     {
-        phaseRho[i + j*DIM] = -1.0;
+        phaseRho[i + j*DIM] = -initPhase;
     }
 }
 
@@ -259,8 +262,8 @@ void BouncebackBoundary(uint3 id : SV_DispatchThreadID)
     g[DIMSqrd9 + 7 + (i + (DIM-1)*DIM)*9]=g[DIMSqrd9 + 5 + (iXbottom + (DIM-2)*DIM)*9];
     g[DIMSqrd9 + 8 + (i + (DIM-1)*DIM)*9]=g[DIMSqrd9 + 6 + (iXtop + (DIM-2)*DIM)*9];
 
-    phaseRho[DIMSqrd + i + 0*DIM] = 1.0;
-    phaseRho[DIMSqrd + i + (DIM-1)*DIM] = 1.0;
+    phaseRho[DIMSqrd + i + 0*DIM] = initRho;
+    phaseRho[DIMSqrd + i + (DIM-1)*DIM] = initRho;
     uv[(i + 0 * DIM)*2 + 0] = 0.0; 
     uv[(i + 0 * DIM)*2 + 1] = 0.0;
     uv[(i + (DIM-1) * DIM)*2 + 0] = 0.0; 

@@ -346,10 +346,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   plotMode: 0
   plotImage: {fileID: 140881755}
-  DIM: 128
-  tauGas: 0.7
-  tauLiq: 2.5
-  omegaPhi: 1
+  DIM: 120
+  tau_phi: 1
+  tau_rho: 1
   loopCount: 1
   minSpeed: 0
   maxSpeed: 0.1
@@ -357,10 +356,14 @@ MonoBehaviour:
   maxRho: 0.1
   minPhase: -1
   maxPhase: 1
-  wallGradient: -0.15
-  sigma: 0.04
-  width: 3
-  gammaconst: 3
+  wallGradient: 0
+  sigma: 0.01
+  width: 5
+  initPhaseValue: 0.4995
+  initRho: 0.5005
+  gammaconst: 1
+  debugMode: 1
+  debugFrame: 0
   compute: {fileID: 7200000, guid: 94b031e1a3ab05941830d97ea72e2289, type: 3}
 --- !u!1 &1056865738
 GameObject:

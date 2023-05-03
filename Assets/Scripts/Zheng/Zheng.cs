@@ -16,9 +16,10 @@ public class Zheng : MonoBehaviour
     public PlotMode plotMode;
     public Image plotImage;
     public int DIM;
-    public float tauGas=1.0f;
-    public float tauLiq=1.0f;
-    public float omegaPhi=1.0f;
+    // public float tauGas=1.0f;
+    // public float tauLiq=1.0f;
+    public float tau_phi = 1.0f;
+    public float tau_rho = 1.0f;
     public int loopCount;
     public float minSpeed = 0f;
     public float maxSpeed = 0.1f;
@@ -29,24 +30,30 @@ public class Zheng : MonoBehaviour
     public float wallGradient = -0.15f;
     public float sigma = 0.04f;
     public float width = 3f;
+    public float initPhaseValue = 1f;
+    public float initRho = 1f;
     // public float aconst=0.04f;
     // public float kconst=0.04f;
     public float gammaconst=1.0f;
+    public bool debugMode = false;
+    public bool debugFrame = false;
+
     private void OnValidate() 
     {
         compute.SetFloat("minSpeed",minSpeed);
         compute.SetFloat("maxSpeed",maxSpeed);
         compute.SetFloat("wallGradient",wallGradient);
-        compute.SetFloat("aconst",(3f * sigma)/width);
+        compute.SetFloat("aconst",(3f * sigma*initPhaseValue*initPhaseValue*initPhaseValue*initPhaseValue)/width);
         compute.SetFloat("gammaconst",gammaconst);
-        compute.SetFloat("kconst",(3f * sigma * width)/8f);
+        compute.SetFloat("kconst",(3f * sigma * width)/(8f*initPhaseValue*initPhaseValue));
         compute.SetFloat("minRho",minRho);
         compute.SetFloat("maxRho",maxRho);
         compute.SetFloat("minPhase",minPhase);
         compute.SetFloat("maxPhase",maxPhase);
-        compute.SetFloat("tauLiq",tauLiq);
-        compute.SetFloat("tauGas",tauGas);
-        compute.SetFloat("omegaPhi",omegaPhi);
+        compute.SetFloat("tau_phi",tau_phi);
+        compute.SetFloat("tau_rho",tau_rho);
+        compute.SetFloat("initPhase",initPhaseValue);
+        compute.SetFloat("initRho",initRho);
     }
     Texture2D plotTexture;
     RenderTexture renderTexture;
@@ -168,6 +175,12 @@ public class Zheng : MonoBehaviour
     }
 
     private void FixedUpdate() {
+        if(debugMode)
+        {
+            if(!debugFrame)return;
+
+            debugFrame = false;
+        }
         for (int kk = 0; kk < loopCount; kk++)
         {
             Step();
