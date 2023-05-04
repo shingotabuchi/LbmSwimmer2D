@@ -1,0 +1,15 @@
+#pragma kernel InitPhase
+#pragma kernel InitDistribution
+
+uint DIM;
+uint DIMSqrd9;
+RWStructuredBuffer<float> P,UV,C,GradC,Rho,n;
+int Index(int i, int j)
+{
+    return (i + DIM)%DIM + ((j + DIM)%DIM) * DIM;
+}
+[numthreads(8, 8, 1)]
+void InitPhase(uint3 id : SV_DispatchThreadID)
+{
+
+}

@@ -150,7 +150,7 @@ void Init(uint3 id : SV_DispatchThreadID)
     float xf = (float)(x-(int)((uint)lx/2));
     float yf = (float)(y-(int)((uint)ly/2));
     float zf = (float)z - RR/3.0;
-    if(xf*xf + yf*yf + zf*zf < RR*RR)
+    if(xf*xf < RR*RR && yf*yf < RR*RR && zf*zf < RR*RR)
     {
         rho[index] = rho_h;
     }
