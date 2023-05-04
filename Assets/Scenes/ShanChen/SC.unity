@@ -237,9 +237,13 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   nx: 128
   ny: 128
-  maxRho: 1
   plotImage: {fileID: 1987979154}
-  stepCount: 0
+  tau: 1
+  rhol: 1.95
+  rhog: 0.15
+  radius: 20
+  g: -5
+  compute: {fileID: 7200000, guid: c3aab99fddccaeb4f867e4333b142099, type: 3}
 --- !u!1 &1064283544
 GameObject:
   m_ObjectHideFlags: 0

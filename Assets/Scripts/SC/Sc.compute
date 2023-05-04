@@ -1,0 +1,155 @@
+#pragma kernel init;
+#pragma kernel plotDensity;
+#pragma kernel collisionStreaming;
+float tau;
+float rhol;
+float rhog;
+int radius;
+float g;
+int nx;
+int ny;
+int nxy9;
+int npop;
+static float weights[]={4.0/9.0,1.0/9.0,1.0/9.0,1.0/9.0,1.0/9.0,1.0/36.0,1.0/36.0,1.0/36.0,1.0/36.0};
+static int cx[9] = {0,1,0,-1,0,1,-1,-1,1};
+static int cy[9] = {0,0,1,0,-1,1,1,-1,-1};
+static float4 colorsOfMap[7] = 
+{
+    float4(0,0,0,1),
+    float4(0,0,1,1),
+    float4(0,1,1,1),
+    float4(0,1,0,1),
+    float4(1,1,0,1),
+    float4(1,0,0,1),
+    float4(1,1,1,1),
+};
+static float colorPerc = 1.0 / (7.0-1.0);
+float4 ColorMap(float val, float maxVal)
+{
+    if(val > maxVal) val = maxVal;
+    float valPerc = val / maxVal;// value%
+    int blockIdx = (int)(valPerc / colorPerc);// Idx of 
+    float valPercResidual = valPerc - (blockIdx*colorPerc);//remove the part represented of block 
+    float percOfColor = valPercResidual / colorPerc;// % of color of this block that will be filled
+    float4 cTarget = colorsOfMap[blockIdx];
+    float deltaR = 0;
+    float deltaG = 0;
+    float deltaB = 0;
+
+    if(blockIdx != 6)
+    {
+        float4 cNext = colorsOfMap[blockIdx + 1];
+        deltaR =cNext.x - cTarget.x;
+        deltaG =cNext.y - cTarget.y;
+        deltaB =cNext.z - cTarget.z;
+    }
+
+    float R = cTarget.r + (deltaR * percOfColor);
+    float G = cTarget.g + (deltaG * percOfColor);
+    float B = cTarget.b + (deltaB * percOfColor);
+
+    return float4(R,G,B,1.0);
+}
+
+RWTexture2D<float4> renderTexture;
+RWStructuredBuffer<float> rho,u1,u2,f,f2;
+
+[numthreads(64, 1, 1)]
+void init(uint3 id : SV_DispatchThreadID)
+{
+    int i = (int)id.x;
+    if ((i/(uint)nx - ny/2.0)*(i/(uint)nx - ny/2.0) + ((int)(id.x%(uint)nx) - nx/2.0)*((int)(id.x%(uint)nx) - nx/2.0) <= radius * radius)
+    {
+        rho[i]=rhol;
+    }
+    else 
+        rho[i]=rhog;
+
+    float dense,v1,v2;
+    
+    dense=rho[i];
+    v1=v2=u1[i]=u2[i]=0.0;
+    float usq = v1*v1 + v2*v2;
+    float feq[9];
+
+    feq[0] = 4.0/9.0 * dense * (1.0 - 1.5 * usq); 
+    feq[1] = 1.0/9.0 * dense * (1.0 + 3*v1 + 4.5*v1*v1 - 1.5*usq); 
+    feq[2] = 1.0/9.0 * dense * (1.0 + 3*v2 + 4.5*v2*v2 - 1.5*usq); 
+    feq[3] = 1.0/9.0 * dense * (1.0 - 3*v1 + 4.5*v1*v1 - 1.5*usq); 
+    feq[4] = 1.0/9.0 * dense * (1.0 - 3*v2 + 4.5*v2*v2 - 1.5*usq); 
+    feq[5] = 1.0/36.0 * dense * (1.0 + 3*(v1 + v2) + 4.5*(v1 + v2)*(v1 + v2) - 1.5*usq); 
+    feq[6] = 1.0/36.0 * dense * (1.0 + 3*(-v1 + v2) + 4.5*(-v1 + v2)*(-v1 + v2) - 1.5*usq);
+    feq[7] = 1.0/36.0 * dense * (1.0 + 3*(-v1 - v2) + 4.5*(v1 + v2)*(v1 + v2) - 1.5*usq); 
+    feq[8] = 1.0/36.0 * dense * (1.0 + 3*(v1 - v2) + 4.5*(v1 - v2)*(v1 -v2) - 1.5*usq); 
+    for (int k=0; k<npop; k++) {
+        f[9*i+k]=feq[k];
+        f[nxy9 + 9*i+k]=feq[k];
+    }
+}
+
+[numthreads(64, 1, 1)]
+void plotDensity(uint3 id : SV_DispatchThreadID)
+{
+    int i = (int)id.x;
+    rho[i]=0; 
+    for (int k=0; k<9; k++ )
+    {			
+        f[9*i+k] = f[nxy9 + 9*i+k];
+        rho[i]+=f[9*i+k]; 
+    }	
+    renderTexture[uint2(id.x%(uint)nx,id.x/(uint)nx)] = ColorMap(rho[i]-rhog,rhol-rhog);
+}
+
+[numthreads(8, 8, 1)]
+void collisionStreaming(uint3 id : SV_DispatchThreadID)
+{
+    int iY = (int)id.y;
+    int iX = (int)id.x;
+    int i=iY*nx+iX;
+    float dense,v1,v2;
+    
+    dense=rho[i];
+
+    float fx=0.0;
+    float fy=0.0;
+    int k;
+    for(k=0;k<9;k++)
+    {
+        int iX2=(iX+cx[k]+nx) % (uint)nx; 
+        int iY2=(iY+cy[k]+ny) % (uint)ny;
+        fx+=weights[k]*cx[k]*(1.0-exp(-rho[nx*iY2+iX2]));
+        fy+=weights[k]*cy[k]*(1.0-exp(-rho[nx*iY2+iX2]));
+    }
+
+    fx=-g*(1.0-exp(-rho[i]))*fx;
+    fy=-g*(1.0-exp(-rho[i]))*fy;
+
+    v1=u1[i]=(f[9*i+1]-f[9*i+3]+f[9*i+5]-f[9*i+6]-f[9*i+7]+f[9*i+8])/dense+fx/(2.0*dense); 
+    v2=u2[i]=(f[9*i+2]-f[9*i+4]+f[9*i+5]+f[9*i+6]-f[9*i+7]-f[9*i+8])/dense+fy/(2.0*dense); 
+
+    float fpop[9];
+    for(k=0;k<9;k++)
+        fpop[k]=weights[k]*(1-0.5/tau)*((3*(cx[k]-v1)+9*cx[k]*(cx[k]*v1+cy[k]*v2))*fx
+            +(3*(cy[k]-v2)+9*cy[k]*(cx[k]*v1+cy[k]*v2))*fy);
+
+    float usq = v1*v1 + v2*v2;	
+
+    float feq[9];
+    feq[0] = 4.0/9.0 * dense * (1.0 - 1.5 * usq); 
+    feq[1] = 1.0/9.0 * dense * (1.0 + 3*v1 + 4.5*v1*v1 - 1.5*usq); 
+    feq[2] = 1.0/9.0 * dense * (1.0 + 3*v2 + 4.5*v2*v2 - 1.5*usq); 
+    feq[3] = 1.0/9.0 * dense * (1.0 - 3*v1 + 4.5*v1*v1 - 1.5*usq); 
+    feq[4] = 1.0/9.0 * dense * (1.0 - 3*v2 + 4.5*v2*v2 - 1.5*usq); 
+    feq[5] = 1.0/36.0 * dense * (1.0 + 3*(v1 + v2) + 4.5*(v1 + v2)*(v1 + v2) - 1.5*usq); 
+    feq[6] = 1.0/36.0 * dense * (1.0 + 3*(-v1 + v2) + 4.5*(-v1 + v2)*(-v1 + v2) - 1.5*usq);
+    feq[7] = 1.0/36.0 * dense * (1.0 + 3*(-v1 - v2) + 4.5*(v1 + v2)*(v1 + v2) - 1.5*usq);
+    feq[8] = 1.0/36.0 * dense * (1.0 + 3*(v1 - v2) + 4.5*(v1 - v2)*(v1 -v2) - 1.5*usq);
+
+    for(k=0; k<9; k++) 
+    {  
+        int iX2=(iX+cx[k]+nx) % (uint)nx; 
+        int iY2=(iY+cy[k]+ny) % (uint)ny;
+        f[9*i+k]+=-1.0/tau*(f[9*i+k]-feq[k])+fpop[k]; 
+        f[nxy9 + 9*(nx*iY2+iX2)+k]=f[9*i+k]; 
+    }  
+}
