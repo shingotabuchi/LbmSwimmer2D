@@ -1,6 +1,7 @@
 #pragma kernel init;
 #pragma kernel plotDensity;
 #pragma kernel collisionStreaming;
+#pragma kernel bouncebackBoundary;
 float tau;
 float rhol;
 float rhog;
@@ -24,6 +25,10 @@ static float4 colorsOfMap[7] =
     float4(1,1,1,1),
 };
 static float colorPerc = 1.0 / (7.0-1.0);
+static float a = 2.0/49.0;
+static float b = 2.0/21.0;
+static float R = 1.0;
+static float beta = 1.16;
 float4 ColorMap(float val, float maxVal)
 {
     if(val > maxVal) val = maxVal;
@@ -54,24 +59,25 @@ float4 ColorMap(float val, float maxVal)
 RWTexture2D<float4> renderTexture;
 RWStructuredBuffer<float> rho,u1,u2,f,f2;
 
-[numthreads(64, 1, 1)]
-void init(uint3 id : SV_DispatchThreadID)
+uint Hash(uint s)
 {
-    int i = (int)id.x;
-    if ((i/(uint)nx - ny/2.0)*(i/(uint)nx - ny/2.0) + ((int)(id.x%(uint)nx) - nx/2.0)*((int)(id.x%(uint)nx) - nx/2.0) <= radius * radius)
-    {
-        rho[i]=rhol;
-    }
-    else 
-        rho[i]=rhog;
+    s ^= 2747636419u;
+    s *= 2654435769u;
+    s ^= s >> 16;
+    s *= 2654435769u;
+    s ^= s >> 16;
+    s *= 2654435769u;
+    return s;
+}
 
-    float dense,v1,v2;
-    
-    dense=rho[i];
-    v1=v2=u1[i]=u2[i]=0.0;
+float Random(uint seed)
+{
+    return float(Hash(seed)) / 4294967295.0; // 2^32-1
+}
+
+void Feq(float dense,float v1, float v2, out float feq[9])
+{
     float usq = v1*v1 + v2*v2;
-    float feq[9];
-
     feq[0] = 4.0/9.0 * dense * (1.0 - 1.5 * usq); 
     feq[1] = 1.0/9.0 * dense * (1.0 + 3*v1 + 4.5*v1*v1 - 1.5*usq); 
     feq[2] = 1.0/9.0 * dense * (1.0 + 3*v2 + 4.5*v2*v2 - 1.5*usq); 
@@ -79,8 +85,50 @@ void init(uint3 id : SV_DispatchThreadID)
     feq[4] = 1.0/9.0 * dense * (1.0 - 3*v2 + 4.5*v2*v2 - 1.5*usq); 
     feq[5] = 1.0/36.0 * dense * (1.0 + 3*(v1 + v2) + 4.5*(v1 + v2)*(v1 + v2) - 1.5*usq); 
     feq[6] = 1.0/36.0 * dense * (1.0 + 3*(-v1 + v2) + 4.5*(-v1 + v2)*(-v1 + v2) - 1.5*usq);
-    feq[7] = 1.0/36.0 * dense * (1.0 + 3*(-v1 - v2) + 4.5*(v1 + v2)*(v1 + v2) - 1.5*usq); 
-    feq[8] = 1.0/36.0 * dense * (1.0 + 3*(v1 - v2) + 4.5*(v1 - v2)*(v1 -v2) - 1.5*usq); 
+    feq[7] = 1.0/36.0 * dense * (1.0 + 3*(-v1 - v2) + 4.5*(v1 + v2)*(v1 + v2) - 1.5*usq);
+    feq[8] = 1.0/36.0 * dense * (1.0 + 3*(v1 - v2) + 4.5*(v1 - v2)*(v1 -v2) - 1.5*usq);
+}
+
+float Pressure(float dense,float T)
+{
+    float Tc = (0.0778*a)/(0.45724*b*R);
+    float omega = 0.344;
+    float epsilon = 1 + (0.37464 + 1.54226*omega - 0.26992*omega*omega) * (1 - sqrt(T/Tc));
+    epsilon = epsilon*epsilon;
+    return (dense * R * T)/(1.0 - b * dense) - (a * dense * dense * epsilon)/(1.0 + 2.0 * b * dense - b * b * dense * dense); 
+}
+
+float Potential(float dense)
+{
+    float T = 0.7*(0.0778*a)/(0.45724*b*R);
+    float p = Pressure(dense,T);
+    float c0 = 6.0;
+    // return sqrt(abs((2.0*(p - dense/3.0))/(c0)));
+    return sqrt(abs((2.0*(p - dense/3.0))/(c0)));
+}
+
+float PotentialSimple(float dense)
+{
+    return 1.0-exp(-dense);
+}
+[numthreads(64, 1, 1)]
+void init(uint3 id : SV_DispatchThreadID)
+{
+    int i = (int)id.x;
+    rho[i] = Random(id.x)*(rhol - rhog) + rhog;
+    // if ((i/(uint)nx - ny/2.0)*(i/(uint)nx - ny/2.0) + ((int)(id.x%(uint)nx) - nx/2.0)*((int)(id.x%(uint)nx) - nx/2.0) <= radius * radius)
+    // {
+    //     rho[i]=rhol;
+    // }
+    // else 
+    //     rho[i]=rhog;
+
+    float dense,v1,v2;
+    
+    dense=rho[i];
+    v1=v2=u1[i]=u2[i]=0.0;
+    float feq[9];
+    Feq(dense,v1,v2,feq);
     for (int k=0; k<npop; k++) {
         f[9*i+k]=feq[k];
         f[nxy9 + 9*i+k]=feq[k];
@@ -97,8 +145,13 @@ void plotDensity(uint3 id : SV_DispatchThreadID)
         f[9*i+k] = f[nxy9 + 9*i+k];
         rho[i]+=f[9*i+k]; 
     }	
+    // if(id.x/(uint)nx == 0 || id.x/(uint)nx == ny-1)
+    // {
+    //     rho[i] = rhol;
+    // }
     renderTexture[uint2(id.x%(uint)nx,id.x/(uint)nx)] = ColorMap(rho[i]-rhog,rhol-rhog);
 }
+
 
 [numthreads(8, 8, 1)]
 void collisionStreaming(uint3 id : SV_DispatchThreadID)
@@ -113,37 +166,52 @@ void collisionStreaming(uint3 id : SV_DispatchThreadID)
     float fx=0.0;
     float fy=0.0;
     int k;
-    for(k=0;k<9;k++)
+    float phi0 = Potential(rho[i]);
+    // float phi0 = PotentialSimple(rho[i]);
+    for(k=1;k<9;k++)
     {
         int iX2=(iX+cx[k]+nx) % (uint)nx; 
         int iY2=(iY+cy[k]+ny) % (uint)ny;
-        fx+=weights[k]*cx[k]*(1.0-exp(-rho[nx*iY2+iX2]));
-        fy+=weights[k]*cy[k]*(1.0-exp(-rho[nx*iY2+iX2]));
+        // if(iY == 0 && cy[k] == -1) continue;
+        // if(iY == ny-1 && cy[k] == 1) continue;
+        float phi = Potential(rho[nx*iY2+iX2]);
+        // float phi = PotentialSimple(rho[nx*iY2+iX2]);
+        float g = 0.5;
+        if(k < 5) g = 2.0;
+
+        // if(iY == 0 && cy[k] == -1) g = 0.0;
+        // if(iY == ny-1 && cy[k] == 1) g = 0.0;
+
+        // g = 5.0;
+
+        fx+=g * cx[k]*phi0*phi * beta;
+        fy+=g * cy[k]*phi0*phi * beta;
+        fx+=g * cx[k]*phi *phi * (1.0-beta)/2.0;
+        fy+=g * cy[k]*phi *phi * (1.0-beta)/2.0;
+
+        // fx+=g * cx[k]*phi0*phi * weights[k];
+        // fy+=g * cy[k]*phi0*phi * weights[k];
     }
 
-    fx=-g*(1.0-exp(-rho[i]))*fx;
-    fy=-g*(1.0-exp(-rho[i]))*fy;
+    // v1=u1[i]=(f[9*i+1]-f[9*i+3]+f[9*i+5]-f[9*i+6]-f[9*i+7]+f[9*i+8])/dense+fx/(2.0*dense); 
+    // v2=u2[i]=(f[9*i+2]-f[9*i+4]+f[9*i+5]+f[9*i+6]-f[9*i+7]-f[9*i+8])/dense+fy/(2.0*dense); 
+    v1=u1[i]=(f[9*i+1]-f[9*i+3]+f[9*i+5]-f[9*i+6]-f[9*i+7]+f[9*i+8])/dense; 
+    v2=u2[i]=(f[9*i+2]-f[9*i+4]+f[9*i+5]+f[9*i+6]-f[9*i+7]-f[9*i+8])/dense; 
+    float feq[9];
+    Feq(dense,v1,v2,feq);
 
-    v1=u1[i]=(f[9*i+1]-f[9*i+3]+f[9*i+5]-f[9*i+6]-f[9*i+7]+f[9*i+8])/dense+fx/(2.0*dense); 
-    v2=u2[i]=(f[9*i+2]-f[9*i+4]+f[9*i+5]+f[9*i+6]-f[9*i+7]-f[9*i+8])/dense+fy/(2.0*dense); 
+    float feqForced[9];
+    float v1Forced = v1 + fx/dense;
+    float v2Forced = v2 + fy/dense;
+    Feq(dense,v1Forced,v2Forced,feqForced);
 
     float fpop[9];
     for(k=0;k<9;k++)
-        fpop[k]=weights[k]*(1-0.5/tau)*((3*(cx[k]-v1)+9*cx[k]*(cx[k]*v1+cy[k]*v2))*fx
-            +(3*(cy[k]-v2)+9*cy[k]*(cx[k]*v1+cy[k]*v2))*fy);
-
-    float usq = v1*v1 + v2*v2;	
-
-    float feq[9];
-    feq[0] = 4.0/9.0 * dense * (1.0 - 1.5 * usq); 
-    feq[1] = 1.0/9.0 * dense * (1.0 + 3*v1 + 4.5*v1*v1 - 1.5*usq); 
-    feq[2] = 1.0/9.0 * dense * (1.0 + 3*v2 + 4.5*v2*v2 - 1.5*usq); 
-    feq[3] = 1.0/9.0 * dense * (1.0 - 3*v1 + 4.5*v1*v1 - 1.5*usq); 
-    feq[4] = 1.0/9.0 * dense * (1.0 - 3*v2 + 4.5*v2*v2 - 1.5*usq); 
-    feq[5] = 1.0/36.0 * dense * (1.0 + 3*(v1 + v2) + 4.5*(v1 + v2)*(v1 + v2) - 1.5*usq); 
-    feq[6] = 1.0/36.0 * dense * (1.0 + 3*(-v1 + v2) + 4.5*(-v1 + v2)*(-v1 + v2) - 1.5*usq);
-    feq[7] = 1.0/36.0 * dense * (1.0 + 3*(-v1 - v2) + 4.5*(v1 + v2)*(v1 + v2) - 1.5*usq);
-    feq[8] = 1.0/36.0 * dense * (1.0 + 3*(v1 - v2) + 4.5*(v1 - v2)*(v1 -v2) - 1.5*usq);
+    {
+        fpop[k] = feqForced[k] - feq[k];
+        // fpop[k]=weights[k]*(1-0.5/tau)*((3*(cx[k]-v1)+9*cx[k]*(cx[k]*v1+cy[k]*v2))*fx
+        //     +(3*(cy[k]-v2)+9*cy[k]*(cx[k]*v1+cy[k]*v2))*fy);
+    }
 
     for(k=0; k<9; k++) 
     {  
@@ -152,4 +220,20 @@ void collisionStreaming(uint3 id : SV_DispatchThreadID)
         f[9*i+k]+=-1.0/tau*(f[9*i+k]-feq[k])+fpop[k]; 
         f[nxy9 + 9*(nx*iY2+iX2)+k]=f[9*i+k]; 
     }  
+}
+
+[numthreads(64, 1, 1)]
+void bouncebackBoundary(uint3 id : SV_DispatchThreadID)
+{
+    int i = (int)id.x;
+    int iXtop=(int)(((uint)(i+1+nx))%(uint)nx);
+    int iXbottom=(int)(((uint)(i-1+nx))%(uint)nx);
+
+    f[nxy9 + 2 + (i + 0*nx)*9]=f[nxy9 + 4 + (i + 1*nx)*9];
+    f[nxy9 + 5 + (i + 0*nx)*9]=f[nxy9 + 7 + (iXtop + 1*nx)*9];
+    f[nxy9 + 6 + (i + 0*nx)*9]=f[nxy9 + 8 + (iXbottom + 1*nx)*9];
+
+    f[nxy9 + 4 + (i + (ny-1)*nx)*9]=f[nxy9 + 2 + (i + (ny-2)*nx)*9];
+    f[nxy9 + 7 + (i + (ny-1)*nx)*9]=f[nxy9 + 5 + (iXbottom + (ny-2)*nx)*9];
+    f[nxy9 + 8 + (i + (ny-1)*nx)*9]=f[nxy9 + 6 + (iXtop + (ny-2)*nx)*9];
 }
