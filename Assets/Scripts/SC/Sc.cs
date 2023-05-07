@@ -15,6 +15,7 @@ public class Sc : MonoBehaviour
     public float rhog=0.15f;
     public int radius=20;
     public float g=-5.0f;
+    public float gs=-5.0f;
     public int loopCount;
     //Arrays
     int npop=9;
@@ -27,6 +28,7 @@ public class Sc : MonoBehaviour
         compute.SetFloat("rhol",rhol);
         compute.SetFloat("rhog",rhog);
         compute.SetFloat("g",g);
+        compute.SetFloat("gs",gs);
     }
     private void OnDestroy() {
         rho.Dispose();
