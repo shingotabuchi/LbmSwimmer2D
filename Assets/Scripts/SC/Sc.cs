@@ -13,6 +13,7 @@ public class Sc : MonoBehaviour
     public float tau=1.0f;
     public float rhol=1.95f;
     public float rhog=0.15f;
+    public float wallRho=0.6f;
     public int radius=20;
     public float g=-5.0f;
     //Arrays
@@ -20,11 +21,12 @@ public class Sc : MonoBehaviour
     ComputeBuffer rho,u1,u2,f;
     // Color[] pixels;
     public ComputeShader compute;
-    int init,plotDensity,collisionStreaming;
+    int init,plotDensity,collisionStreaming,bouncebackBoundary;
     private void OnValidate() {
         compute.SetFloat("tau",tau);
         compute.SetFloat("rhol",rhol);
         compute.SetFloat("rhog",rhog);
+        compute.SetFloat("wallRho",wallRho);
         compute.SetFloat("g",g);
     }
     private void OnDestroy() {
@@ -70,6 +72,9 @@ public class Sc : MonoBehaviour
         compute.SetBuffer(collisionStreaming,"u2",u2);
         compute.SetBuffer(collisionStreaming,"f",f);
 
+        bouncebackBoundary = compute.FindKernel("bouncebackBoundary");
+        compute.SetBuffer(bouncebackBoundary,"f",f);
+
         compute.Dispatch(init,(nx*ny+63)/64,1,1);
     }
 
@@ -81,5 +86,6 @@ public class Sc : MonoBehaviour
         plotTexture.Apply();
 
         compute.Dispatch(collisionStreaming,(nx+7)/8,(ny+7)/8,1);
+        compute.Dispatch(bouncebackBoundary,(nx+63)/64,1,1);
     }
 }
