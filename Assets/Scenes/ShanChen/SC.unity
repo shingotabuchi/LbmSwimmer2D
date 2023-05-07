@@ -235,15 +235,30 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0a6ebdd7cf17b6740bb2b16e46a33ca1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  nx: 512
-  ny: 512
+  nx: 256
+  ny: 256
   plotImage: {fileID: 1987979154}
-  tau: 1
-  rhol: 3
+  vl: 1
+  vg: 0.17
+  taut: 1
+  rhol: 1.5
   rhog: 0.1
-  radius: 10
-  g: 0
+  maxrho: 5
+  minrho: 0.5
+  maxtemp: 0.4
+  mintemp: 0.01
+  radius: 50
+  gs: 0
+  grav: -0.000001
+  initTr: 0.7
+  cv: 6
   loopCount: 1
+  periodic: 0
+  initMode: 0
+  plotMode: 0
+  minspeed: 1
+  maxspeed: 0
+  walltempr: 0.5
   compute: {fileID: 7200000, guid: c3aab99fddccaeb4f867e4333b142099, type: 3}
 --- !u!1 &1064283544
 GameObject:
