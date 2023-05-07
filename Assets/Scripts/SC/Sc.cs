@@ -83,7 +83,7 @@ public class Sc : MonoBehaviour
         {
             compute.Dispatch(plotDensity,(nx*ny+63)/64,1,1);
             compute.Dispatch(collisionStreaming,(nx+7)/8,(ny+7)/8,1);
-            // compute.Dispatch(bouncebackBoundary,(nx+63)/64,1,1);
+            compute.Dispatch(bouncebackBoundary,(nx+63)/64,1,1);
         }
         
         RenderTexture.active = renderTexture;
