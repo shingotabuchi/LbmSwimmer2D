@@ -53,17 +53,32 @@ float4 ColorMap(float val, float maxVal)
 
 RWTexture2D<float4> renderTexture;
 RWStructuredBuffer<float> rho,u1,u2,f,f2;
+uint Hash(uint s)
+{
+    s ^= 2747636419u;
+    s *= 2654435769u;
+    s ^= s >> 16;
+    s *= 2654435769u;
+    s ^= s >> 16;
+    s *= 2654435769u;
+    return s;
+}
 
+float Random(uint seed)
+{
+    return float(Hash(seed)) / 4294967295.0; // 2^32-1
+}
 [numthreads(64, 1, 1)]
 void init(uint3 id : SV_DispatchThreadID)
 {
     int i = (int)id.x;
-    if ((i/(uint)nx - ny/2.0)*(i/(uint)nx - ny/2.0) + ((int)(id.x%(uint)nx) - nx/2.0)*((int)(id.x%(uint)nx) - nx/2.0) <= radius * radius)
-    {
-        rho[i]=rhol;
-    }
-    else 
-        rho[i]=rhog;
+    rho[i] = Random(id.x) * (rhol - rhog) + rhog;
+    // if ((i/(uint)nx - ny/2.0)*(i/(uint)nx - ny/2.0) + ((int)(id.x%(uint)nx) - nx/2.0)*((int)(id.x%(uint)nx) - nx/2.0) <= radius * radius)
+    // {
+    //     rho[i]=rhol;
+    // }
+    // else 
+    //     rho[i]=rhog;
 
     float dense,v1,v2;
     
