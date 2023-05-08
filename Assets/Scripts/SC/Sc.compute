@@ -3,6 +3,7 @@
 #pragma kernel bouncebackBoundary;
 #pragma kernel oneLoop;
 #pragma kernel plotPass;
+#pragma kernel plotSpeed;
 #pragma kernel collisionStreamingG;
 
 float vl,vg;
@@ -19,6 +20,7 @@ float gs;
 float cv;
 float grav;
 float walltempr;
+float wallrho;
 int nx;
 int ny;
 int nxy9;
@@ -76,7 +78,7 @@ float4 ColorMap(float val, float maxVal)
 
 RWTexture2D<float4> renderTexture;
 RWStructuredBuffer<float> rhot,uv,f,g;
-
+RWStructuredBuffer<float2> velocityBuffer;
 uint Hash(uint s)
 {
     s ^= 2747636419u;
@@ -162,8 +164,19 @@ void init(uint3 id : SV_DispatchThreadID)
             rhot[i]=rhog;
             // rhot[i]=rhol;
     }
-    else  if(initMode == 2) rhot[i]=rhol;
-    else rhot[i]=rhog;
+    else if(initMode == 2) rhot[i]=rhol;
+    else if(initMode == 3) rhot[i]=rhog;
+    else if(initMode == 4)
+    {
+        if ((i/(uint)nx+ny/5.0)*(i/(uint)nx+ny/5.0) + ((int)(id.x%(uint)nx) - nx/2.0)*((int)(id.x%(uint)nx) - nx/2.0) <= radius * radius)
+        {
+            rhot[i]=rhol;
+            // rhot[i]=rhog;
+        }
+        else 
+            rhot[i]=rhog;
+            // rhot[i]=rhol;
+    }
 
     rhot[nxy1 + i] = initTr * (0.0778*a)/(0.45724*b*R);
     
@@ -181,14 +194,14 @@ void init(uint3 id : SV_DispatchThreadID)
         f[nxy9 + 9*i+k]=feq[k];
         g[9*i+k]=geq[k];
         g[nxy9 + 9*i+k]=geq[k];
+
     }
 }
-
 [numthreads(64, 1, 1)]
 void plotPass(uint3 id : SV_DispatchThreadID)
 {
     int i = (int)id.x;
-
+    float Tc = (0.0778*a)/(0.45724*b*R);
     rhot[i]=0; 
     rhot[nxy1 + i]=0; 
     for (int k=0; k<9; k++ )
@@ -200,10 +213,16 @@ void plotPass(uint3 id : SV_DispatchThreadID)
         rhot[nxy1 + i]+=g[9*i+k]; 
     }	
     if(plotMode == 0) renderTexture[uint2(id.x%(uint)nx,id.x/(uint)nx)] = ColorMap(rhot[i]-minrho,maxrho-minrho);
-    else if (plotMode == 1) renderTexture[uint2(id.x%(uint)nx,id.x/(uint)nx)] = ColorMap(rhot[nxy1 + i]-mintemp,maxtemp-mintemp);
+    else if (plotMode == 1) renderTexture[uint2(id.x%(uint)nx,id.x/(uint)nx)] = ColorMap(rhot[nxy1 + i]-mintemp*Tc,(maxtemp-mintemp)*Tc);
     // else renderTexture[uint2(id.x%(uint)nx,id.x/(uint)nx)] = ColorMap(sqrt(uv[i*2 + 0]*uv[i*2 + 0] + uv[i*2 + 1]*uv[i*2 + 1])-minspeed,maxspeed-minspeed);
 }
 
+[numthreads(64, 1, 1)]
+void plotSpeed(uint3 id : SV_DispatchThreadID)
+{
+    int i = (int)id.x;
+    renderTexture[uint2(id.x%(uint)nx,id.x/(uint)nx)] = ColorMap(sqrt(uv[i*2 + 0]*uv[i*2 + 0] + uv[i*2 + 1]*uv[i*2 + 1])-minspeed,maxspeed-minspeed);
+}
 float DelPDelT(float temp, float dense)
 {
     float Tc = (0.0778*a)/(0.45724*b*R);
@@ -287,20 +306,25 @@ void collisionStreaming(uint3 id : SV_DispatchThreadID)
 
         if(!periodic&&((iY == 0 && cy[k] == -1) || (iY == ny-1 && cy[k] == 1) ))
         {
-            g = 0.0;
-            s = 1.0;
-            // denseNear = rhot[nxy1*2+1];
+            fx+=g * gs * cx[k]*phi0*phi0 * beta;
+            fy+=g * gs * cy[k]*phi0*phi0 * beta;
+
+            // fx+=g * gs * cx[k]*phi0 *phi0 * (1.0-beta)/2.0;
+            // fy+=g * gs * cy[k]*phi0 *phi0 * (1.0-beta)/2.0;
+
+            // fx+=0.27 * weights[k] * cx[k] * phiS;
+            // fy+=0.27 * weights[k] * cy[k] * phiS;
         }
-
-        float phi = Potential(rhot[nxy1 + nx*iY2+iX2],denseNear);
-
-        fx+=g * cx[k]*phi0*phi * beta;
-        fy+=g * cy[k]*phi0*phi * beta;
-        fx+=g * cx[k]*phi *phi * (1.0-beta)/2.0;
-        fy+=g * cy[k]*phi *phi * (1.0-beta)/2.0;
-
-        fx+= -phiS*gs*weights[k]*s*cx[k];
-        fy+= -phiS*gs*weights[k]*s*cy[k];
+        else
+        {
+            float phi = Potential(rhot[nxy1 + nx*iY2+iX2],denseNear);
+            fx+=g * cx[k]*phi0*phi * beta;
+            fy+=g * cy[k]*phi0*phi * beta;
+            fx+=g * cx[k]*phi *phi * (1.0-beta)/2.0;
+            fy+=g * cy[k]*phi *phi * (1.0-beta)/2.0;
+        }
+        // fx+= -phiS*gs*weights[k]*s*cx[k];
+        // fy+= -phiS*gs*weights[k]*s*cy[k];
 
         if(rhot[nxy]!=0.0)fy+= grav*(dense - rhot[nxy]);
     }
@@ -317,6 +341,7 @@ void collisionStreaming(uint3 id : SV_DispatchThreadID)
     float v2Forced = v2 + fy/dense;
     uv[i*2 + 0] += 0.5*fx/dense;
     uv[i*2 + 1] += 0.5*fy/dense;
+    velocityBuffer[i] = float2(uv[i*2 + 0],uv[i*2 + 1]);
     Feq(dense,v1Forced,v2Forced,feqForced);
     float fpop[9];
     for(k=0;k<9;k++)
@@ -385,7 +410,8 @@ void bouncebackBoundary(uint3 id : SV_DispatchThreadID)
     
 
     ux = 0;
-    uy = -1+(f[nxy9 + 0 + (i + (ny-1)*nx)*9] + f[nxy9 + 1 + (i + (ny-1)*nx)*9] + f[nxy9 + 3 + (i + (ny-1)*nx)*9] + 2.0 * (f[nxy9 + 2 + (i + (ny-1)*nx)*9] + f[nxy9 + 5 + (i + (ny-1)*nx)*9] + f[nxy9 + 6 + (i + (ny-1)*nx)*9]))/denseUpper;
+    // uy = -1+(f[nxy9 + 0 + (i + (ny-1)*nx)*9] + f[nxy9 + 1 + (i + (ny-1)*nx)*9] + f[nxy9 + 3 + (i + (ny-1)*nx)*9] + 2.0 * (f[nxy9 + 2 + (i + (ny-1)*nx)*9] + f[nxy9 + 5 + (i + (ny-1)*nx)*9] + f[nxy9 + 6 + (i + (ny-1)*nx)*9]))/denseUpper;
+    uy = 0;
     // ux = uv[(i + (ny-1)*nx)*2 + 0];
     // uy = uv[(i + (ny-1)*nx)*2 + 1];
     dense = rhot[nxy1*2 + 1];
@@ -400,7 +426,7 @@ void bouncebackBoundary(uint3 id : SV_DispatchThreadID)
     // ux = uv[(i + (ny-1)*nx)*2 + 0];
     // uy = uv[(i + (ny-1)*nx)*2 + 1];
     // temp = rhot[nxy1 + i + (ny-1)*nx];
-    temp = walltemp;
+    temp = initTr * (0.0778*a)/(0.45724*b*R);
     g[nxy9 + 4 + (i + (ny-1)*nx)*9]=g[nxy9 + 4 + (i + (ny-1)*nx)*9] - (2.0 * temp * uyUpper)/3.0;
     g[nxy9 + 7 + (i + (ny-1)*nx)*9]=g[nxy9 + 7 + (i + (ny-1)*nx)*9] + (g[nxy9 + 1 + (i + (ny-1)*nx)*9] - g[nxy9 + 3 + (i + (ny-1)*nx)*9])/2.0 - (1.0/6.0) * temp * uyUpper;
     g[nxy9 + 8 + (i + (ny-1)*nx)*9]=g[nxy9 + 8 + (i + (ny-1)*nx)*9] + (g[nxy9 + 3 + (i + (ny-1)*nx)*9] - g[nxy9 + 1 + (i + (ny-1)*nx)*9])/2.0 - (1.0/6.0) * temp * uyUpper;

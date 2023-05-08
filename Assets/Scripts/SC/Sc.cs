@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.VFX;
 using UnityEngine.UI;
 
 public class Sc : MonoBehaviour
@@ -11,6 +12,7 @@ public class Sc : MonoBehaviour
         Circle,
         Liquid,
         Gas,
+        Droplet,
     }
     public enum PlotMode
     {
@@ -46,12 +48,15 @@ public class Sc : MonoBehaviour
     public PlotMode plotMode;
     public float minspeed,maxspeed;
     public float walltempr = 0.9f;
+    public float wallrho;
+    public VisualEffect vfx;
+    GraphicsBuffer velocityGraphicsBuffer;
     //Arrays
     int npop=9;
     ComputeBuffer rhot,uv,f,g;
     // Color[] pixels;
     public ComputeShader compute;
-    int init,collisionStreaming,bouncebackBoundary,oneLoop,plotPass,collisionStreamingG;
+    int init,collisionStreaming,bouncebackBoundary,oneLoop,plotPass,collisionStreamingG,plotSpeed;
     private void OnValidate() {
         compute.SetFloat("taut",taut);
         compute.SetFloat("vg",vg);
@@ -64,6 +69,7 @@ public class Sc : MonoBehaviour
         compute.SetFloat("mintemp",mintemp);
         compute.SetFloat("maxspeed",maxspeed);
         compute.SetFloat("maxspeed",maxspeed);
+        compute.SetFloat("wallrho",wallrho);
         compute.SetFloat("walltempr",walltempr);
         compute.SetFloat("gs",gs);
         compute.SetFloat("grav",grav);
@@ -89,7 +95,10 @@ public class Sc : MonoBehaviour
         // renderTextureOne = new RenderTexture(1,1,24);
         renderTexture.enableRandomWrite = true;
         // renderTextureOne.enableRandomWrite = true;
-
+        velocityGraphicsBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, nx*ny, sizeof(float)*2);
+        vfx.SetGraphicsBuffer("VelocityBuffer",velocityGraphicsBuffer);
+        vfx.SetInt("DIM_X",nx);
+        vfx.SetInt("DIM_Y",ny);
         rhot = new ComputeBuffer((nx*ny+1)*2 + 2,sizeof(float));
         uv = new ComputeBuffer(nx*ny*2,sizeof(float));
         f = new ComputeBuffer(nx*ny*npop*2,sizeof(float));
@@ -118,9 +127,14 @@ public class Sc : MonoBehaviour
         compute.SetBuffer(plotPass,"rhot",rhot);
         compute.SetTexture(plotPass,"renderTexture",renderTexture);
 
+        plotSpeed = compute.FindKernel("plotSpeed");
+        compute.SetBuffer(plotSpeed,"uv",uv);
+        compute.SetTexture(plotSpeed,"renderTexture",renderTexture);
+
         collisionStreaming = compute.FindKernel("collisionStreaming");
         compute.SetBuffer(collisionStreaming,"rhot",rhot);
         compute.SetBuffer(collisionStreaming,"uv",uv);
+        compute.SetBuffer(collisionStreaming,"velocityBuffer",velocityGraphicsBuffer);
         compute.SetBuffer(collisionStreaming,"f",f);
 
         collisionStreamingG = compute.FindKernel("collisionStreamingG");
@@ -145,13 +159,14 @@ public class Sc : MonoBehaviour
         for (int i = 0; i < loopCount; i++)
         {
             compute.Dispatch(plotPass,(nx*ny+63)/64,1,1);
+            if(plotMode == PlotMode.Speed) compute.Dispatch(plotSpeed,(nx*ny+63)/64,1,1);
             compute.Dispatch(oneLoop,1,1,1);
             // if(grav!=0f)compute.Dispatch(oneLoop,1,1,1);
             compute.Dispatch(collisionStreaming,(nx+7)/8,(ny+7)/8,1);
             compute.Dispatch(collisionStreamingG,(nx+7)/8,(ny+7)/8,1);
             if(!periodic)compute.Dispatch(bouncebackBoundary,(nx+63)/64,1,1);
         }
-        
+        vfx.SetFloat("VelocityScale",((10f/(float)ny) * loopCount / Time.deltaTime) * Time.fixedDeltaTime/Time.deltaTime);
         RenderTexture.active = renderTexture;
         // renderTextureOne = renderTexture;
         // RenderTexture.active = renderTextureOne;
