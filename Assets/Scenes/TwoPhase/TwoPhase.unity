@@ -532,7 +532,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   plotMode: 0
   plotImage: {fileID: 1514633094}
-  DIM: 128
+  DIM: 64
   tauGas: 0.7
   tauLiq: 2.5
   omegaPhi: 1

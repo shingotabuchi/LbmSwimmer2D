@@ -34,6 +34,9 @@ public class LbmSwimmer2D : MonoBehaviour
     public float epsw = 100.0f, zeta = 1.0f;
     public float squirmerBeta = 0f;
     public float squirmerSpeedConstant = 0.001f;
+    public bool twoParticleMode; 
+    public float twoParticleDistance;
+    public float twoParticleDeviation;
     Texture2D plotTexture;
     Texture2D particleTexture;
     RenderTexture renderTexture;
@@ -78,6 +81,8 @@ public class LbmSwimmer2D : MonoBehaviour
     // Start is called before the first frame update
     void Start()
     {
+        if(twoParticleMode) particleCount = 2;
+        compute.SetBool("twoParticleMode",twoParticleMode);
         // // Begin with an array containing sample data
         // double[] signal = FftSharp.SampleData.SampleAudio1();
 
@@ -209,8 +214,15 @@ public class LbmSwimmer2D : MonoBehaviour
         float dist = 3 * particleRadius; 
         for(int i = 0; i < particleCount; i++)
         {
-            // particleInitPos[i] = new Vector2(DIM_X/2,DIM_Y/2);
-            particleInitPos[i] = new Vector2(UnityEngine.Random.Range(0f,DIM_X),UnityEngine.Random.Range(0f,DIM_Y));
+            if(twoParticleMode) 
+            {
+                // particleInitPos[i] = new Vector2((i*2-1)*(particleRadius+twoParticleDistance)/2f + DIM_X/2f, DIM_Y/2f);
+                particleInitPos[i] = new Vector2(DIM_X/2f + (i*2-1)*(twoParticleDeviation)/2f, (i*2-1)*(twoParticleDistance)/2f + DIM_Y/2f);
+            }
+            else
+            {
+                particleInitPos[i] = new Vector2(UnityEngine.Random.Range(0f,DIM_X),UnityEngine.Random.Range(0f,DIM_Y));
+            }
         }
         roundParticleInitPosBuffer.SetData(particleInitPos);
 

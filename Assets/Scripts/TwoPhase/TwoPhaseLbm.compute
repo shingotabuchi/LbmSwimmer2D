@@ -80,8 +80,8 @@ void Init(uint3 id : SV_DispatchThreadID)
 {
     int i = (int)id.x;
     int j = (int)id.y;
-    // if((abs(i - DIM/2.0) <= 20) && (j < 40) && (j >= 1))
-    if((abs(i - DIM/2.0) <= 20) && (abs(j - DIM/2.0) <= 20))
+    if((abs(i - DIM/2.0) <= 10) && (j < 20) && (j >= 1))
+    // if((abs(i - DIM/2.0) <= 20) && (abs(j - DIM/2.0) <= 20))
     {
         phaseRho[i + j*DIM] = 1.0;
     }

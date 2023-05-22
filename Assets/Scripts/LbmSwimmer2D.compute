@@ -18,6 +18,7 @@ RWStructuredBuffer<float> uv,f;
 RWStructuredBuffer<float2> velocityBuffer;
 
 bool isTouched;
+bool twoParticleMode;
 float2 touchTextureCoord;
 
 struct RoundParticleSmallData
@@ -335,7 +336,10 @@ void InitRoundParticles(uint3 id : SV_DispatchThreadID)
     roundParticleSmallDataBuffer[id.x].prevVel1 = float2(0,0);
     roundParticleSmallDataBuffer[id.x].prevVel2 = float2(0,0);
     roundParticleSmallDataBuffer[id.x].omega = 0;
-    roundParticleSmallDataBuffer[id.x].theta = Random(id.x) * 2.0 * pi;
+
+    if(twoParticleMode) roundParticleSmallDataBuffer[id.x].theta = pi/2.0;
+    else roundParticleSmallDataBuffer[id.x].theta = Random(id.x) * 2.0 * pi;
+
     roundParticleSmallDataBuffer[id.x].prevOmega1 = 0;
     roundParticleSmallDataBuffer[id.x].prevOmega2 = 0;
     roundParticleSmallDataBuffer[id.x].perimeterPointCount = particlePerimeterCount;

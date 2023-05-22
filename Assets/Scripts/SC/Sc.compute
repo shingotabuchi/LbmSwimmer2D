@@ -306,14 +306,14 @@ void collisionStreaming(uint3 id : SV_DispatchThreadID)
 
         if(!periodic&&((iY == 0 && cy[k] == -1) || (iY == ny-1 && cy[k] == 1) ))
         {
-            fx+=g * gs * cx[k]*phi0*phi0 * beta;
-            fy+=g * gs * cy[k]*phi0*phi0 * beta;
+            // fx+=g * gs * cx[k]*phi0*phi0 * beta;
+            // fy+=g * gs * cy[k]*phi0*phi0 * beta;
 
             // fx+=g * gs * cx[k]*phi0 *phi0 * (1.0-beta)/2.0;
             // fy+=g * gs * cy[k]*phi0 *phi0 * (1.0-beta)/2.0;
 
-            // fx+=0.27 * weights[k] * cx[k] * phiS;
-            // fy+=0.27 * weights[k] * cy[k] * phiS;
+            fx+=-0.27 * weights[k] * cx[k] * phiS;
+            fy+=-0.27 * weights[k] * cy[k] * phiS;
         }
         else
         {
