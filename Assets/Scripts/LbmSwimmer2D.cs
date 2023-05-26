@@ -37,6 +37,8 @@ public class LbmSwimmer2D : MonoBehaviour
     public bool twoParticleMode; 
     public float twoParticleDistance;
     public float twoParticleDeviation;
+    public int timeFrame;
+
     Texture2D plotTexture;
     Texture2D particleTexture;
     RenderTexture renderTexture;
@@ -52,13 +54,18 @@ public class LbmSwimmer2D : MonoBehaviour
     Vector2[] particleInitPos;
 
     Vector2[] debugFluidVel;
-    RoundParticleSmallData[] debugSmallData;
+    public RoundParticleSmallData[] debugSmallData;
 
     public VisualEffect vfx;
     GraphicsBuffer velocityGraphicsBuffer;
     public bool showGraph;
     public Graph graph;
-    float[] uvBuffer;
+    public float[] uvBuffer;
+    public void FillUvBuffer()
+    {
+        uv.GetData(uvBuffer);
+        roundParticleSmallDataBuffer.GetData(debugSmallData);
+    }
     void OnDestroy()
     {
         uv.Dispose();
@@ -270,6 +277,7 @@ public class LbmSwimmer2D : MonoBehaviour
         RenderTexture.active = particleRenderTexture;
         particleTexture.ReadPixels(new Rect(0, 0, particleRenderTexture.width, particleRenderTexture.height), 0, 0);
         particleTexture.Apply();
+        timeFrame = 0;
         // compute.Dispatch(plotTemperature,(DIM_X+7)/8,(DIM_Y+7)/8,1);
 
         // RenderTexture.active = renderTexture;
@@ -313,6 +321,7 @@ public class LbmSwimmer2D : MonoBehaviour
         {
             for (int i = 0; i < loopCount; i++)
             {
+                timeFrame++;
                 compute.Dispatch(collisions,(DIM_X+7)/8,(DIM_Y+7)/8,1);
                 compute.Dispatch(streaming,(DIM_X+7)/8,(DIM_Y+7)/8,1);
                 // compute.Dispatch(boundaries,(DIM+63)/64,1,1);
