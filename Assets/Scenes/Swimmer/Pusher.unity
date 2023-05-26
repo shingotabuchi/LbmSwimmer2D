@@ -1083,14 +1083,14 @@ MonoBehaviour:
   maxSpeed: 100
   debugMode: 0
   debugFrame: 0
-  particleCount: 100
+  particleCount: 10
   particleDensity: 100
   particleRadius: 2.5
   epsw: 5
   zeta: 1
   squirmerBeta: 2.5
   squirmerSpeedConstant: -0.1
-  twoParticleMode: 1
+  twoParticleMode: 0
   twoParticleDistance: 12.5
   twoParticleDeviation: 10
   vfx: {fileID: 1470476235}
