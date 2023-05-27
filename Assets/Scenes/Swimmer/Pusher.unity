@@ -1074,28 +1074,30 @@ MonoBehaviour:
   ParticleDIM_Y: 256
   pr: 0.71
   ra: 10000
-  tauf: 1
+  tauf: 2
   u0: 0
   loopCount: 4
   minTemp: 0
   maxTemp: 1
   minSpeed: 0
   maxSpeed: 100
-  debugMode: 0
+  debugMode: 1
   debugFrame: 0
   particleCount: 10
-  particleDensity: 100
+  particleDensity: 10
   particleRadius: 2.5
   epsw: 5
   zeta: 1
-  squirmerBeta: 2.5
+  squirmerBeta: 0
   squirmerSpeedConstant: -0.1
-  twoParticleMode: 0
+  twoParticleMode: 1
   twoParticleDistance: 12.5
-  twoParticleDeviation: 10
+  twoParticleDeviation: 0
+  timeFrame: 0
   vfx: {fileID: 1470476235}
   showGraph: 0
   graph: {fileID: 828703431}
+  uvBuffer: []
   compute: {fileID: 7200000, guid: 36a5331066287964a8a5798c9fdb2de5, type: 3}
 --- !u!114 &1693949855
 MonoBehaviour:
