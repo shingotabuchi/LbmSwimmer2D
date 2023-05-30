@@ -35,6 +35,7 @@ public class LbmSwimmer2D : MonoBehaviour
     public float squirmerBeta = 0f;
     public float squirmerSpeedConstant = 0.001f;
     public bool twoParticleMode; 
+    public bool oneParticleMode; 
     public float twoParticleDistance;
     public float twoParticleDeviation;
     public int timeFrame;
@@ -88,8 +89,14 @@ public class LbmSwimmer2D : MonoBehaviour
     // Start is called before the first frame update
     void Start()
     {
-        if(twoParticleMode) particleCount = 2;
+        if(twoParticleMode)
+        {
+            particleCount = 2;
+            oneParticleMode = false;
+        } 
+        else if(oneParticleMode) particleCount = 1;
         compute.SetBool("twoParticleMode",twoParticleMode);
+        compute.SetBool("oneParticleMode",oneParticleMode);
         // // Begin with an array containing sample data
         // double[] signal = FftSharp.SampleData.SampleAudio1();
 
@@ -225,6 +232,10 @@ public class LbmSwimmer2D : MonoBehaviour
             {
                 // particleInitPos[i] = new Vector2((i*2-1)*(particleRadius+twoParticleDistance)/2f + DIM_X/2f, DIM_Y/2f);
                 particleInitPos[i] = new Vector2(DIM_X/2f + (i*2-1)*(twoParticleDeviation)/2f, (i*2-1)*(twoParticleDistance)/2f + DIM_Y/2f);
+            }
+            else if(oneParticleMode)
+            {
+                particleInitPos[i] = new Vector2(DIM_X/2f, DIM_Y/2f);
             }
             else
             {

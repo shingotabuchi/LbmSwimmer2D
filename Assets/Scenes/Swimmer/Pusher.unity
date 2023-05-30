@@ -786,6 +786,52 @@ RectTransform:
   m_AnchoredPosition: {x: 0, y: 0}
   m_SizeDelta: {x: 0, y: 0}
   m_Pivot: {x: 0, y: 0}
+--- !u!1 &1285918576
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1285918577}
+  - component: {fileID: 1285918578}
+  m_Layer: 0
+  m_Name: DataWriter
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1285918577
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1285918576}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 1.6185528, y: -0.38915256, z: 11136.525}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_RootOrder: 6
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1285918578
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1285918576}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8c353aa4d8dbdf2408f17bbf4666ddc3, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  simulation: {fileID: 1693949854}
+  timeSteps: a0860100
 --- !u!1 &1470476233
 GameObject:
   m_ObjectHideFlags: 0
@@ -1068,30 +1114,31 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   plotImage: {fileID: 1693949855}
   particleImage: {fileID: 2038902727}
-  DIM_X: 128
-  DIM_Y: 128
-  ParticleDIM_X: 256
-  ParticleDIM_Y: 256
+  DIM_X: 256
+  DIM_Y: 256
+  ParticleDIM_X: 512
+  ParticleDIM_Y: 512
   pr: 0.71
   ra: 10000
-  tauf: 2
+  tauf: 0.55
   u0: 0
-  loopCount: 4
+  loopCount: 1
   minTemp: 0
   maxTemp: 1
   minSpeed: 0
-  maxSpeed: 100
+  maxSpeed: 0.01
   debugMode: 1
   debugFrame: 0
-  particleCount: 10
-  particleDensity: 10
-  particleRadius: 2.5
+  particleCount: 100
+  particleDensity: 2
+  particleRadius: 5
   epsw: 5
   zeta: 1
-  squirmerBeta: 0
-  squirmerSpeedConstant: -0.1
+  squirmerBeta: 5
+  squirmerSpeedConstant: -0.001
   twoParticleMode: 1
-  twoParticleDistance: 12.5
+  oneParticleMode: 0
+  twoParticleDistance: 22.5
   twoParticleDeviation: 0
   timeFrame: 0
   vfx: {fileID: 1470476235}

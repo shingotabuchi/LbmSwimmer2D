@@ -1,4 +1,5 @@
 using System.IO;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
@@ -10,7 +11,11 @@ public class SwimmerDataWriter : MonoBehaviour
     int dataIndex = 0;
     void Update()
     {
-        if(dataIndex>=timeSteps.Length) return;
+        if(dataIndex>=timeSteps.Length)
+        {
+            UnityEditor.EditorApplication.isPlaying = false;
+            return;
+        }
         if(simulation.timeFrame >= timeSteps[dataIndex])
         {
             simulation.FillUvBuffer();
@@ -25,13 +30,17 @@ public class SwimmerDataWriter : MonoBehaviour
         string V = "";
         string px = "";
         string py= "";
+        string theta= "";
+        string velx= "";
+        string vely= "";
+        string precision = "F10";
         for (int j = 0; j < simulation.DIM_Y; j++)
         {
             for (int i = 0; i < simulation.DIM_X; i++)
             {
                 int index = i + j*simulation.DIM_X;
-                U += simulation.uvBuffer[index*2 + 0].ToString("0.0000000000000000000");
-                V += simulation.uvBuffer[index*2 + 1].ToString("0.0000000000000000000");
+                U += simulation.uvBuffer[index*2 + 0].ToString(precision);
+                V += simulation.uvBuffer[index*2 + 1].ToString(precision);
 
                 if(i < simulation.DIM_X-1)
                 {
@@ -47,21 +56,36 @@ public class SwimmerDataWriter : MonoBehaviour
         }
         for (int i = 0; i < simulation.particleCount; i++)
         {
-            px += simulation.debugSmallData[i].pos.x.ToString("0.0000000000000000000");
-            py += simulation.debugSmallData[i].pos.y.ToString("0.0000000000000000000");
+            px += simulation.debugSmallData[i].pos.x.ToString(precision);
+            py += simulation.debugSmallData[i].pos.y.ToString(precision);
+            velx += simulation.debugSmallData[i].vel.x.ToString(precision);
+            vely += simulation.debugSmallData[i].vel.y.ToString(precision);
+            theta += simulation.debugSmallData[i].theta.ToString(precision);
             if(i < simulation.particleCount-1)
             {
                 px += "\n";
                 py += "\n";
+                velx += "\n";
+                vely += "\n";
+                theta += "\n";
             }
         }
-        float beta = simulation.squirmerBeta*2f;
+        float beta = simulation.squirmerBeta;
         int time = simulation.timeFrame;
         if(time == 1) time = 0;
         string parameters = beta.ToString("0") + "_" + time.ToString();
-        File.WriteAllText(@"Assets/Scripts/python/U" + parameters + ".txt", U);
-        File.WriteAllText(@"Assets/Scripts/python/V" + parameters + ".txt", V);
-        File.WriteAllText(@"Assets/Scripts/python/px" + parameters + ".txt", px);
-        File.WriteAllText(@"Assets/Scripts/python/py" + parameters + ".txt", py);
+        DateTime today = DateTime.Today;
+        string path = @"Assets/Scripts/python/" + today.ToString("yyyy/mm/dd") + "/";
+        Directory.CreateDirectory(path);
+
+        File.WriteAllText(path + "U" + parameters + ".txt", U);
+        File.WriteAllText(path + "V" + parameters + ".txt", V);
+        File.WriteAllText(path + "px" + parameters + ".txt", px);
+        File.WriteAllText(path + "py" + parameters + ".txt", py);
+        File.WriteAllText(path + "velx" + parameters + ".txt", velx);
+        File.WriteAllText(path + "vely" + parameters + ".txt", vely);
+        File.WriteAllText(path + "theta" + parameters + ".txt", theta);
+
+
     }
 }

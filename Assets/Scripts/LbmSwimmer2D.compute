@@ -19,6 +19,7 @@ RWStructuredBuffer<float2> velocityBuffer;
 
 bool isTouched;
 bool twoParticleMode;
+bool oneParticleMode;
 float2 touchTextureCoord;
 
 struct RoundParticleSmallData
@@ -337,7 +338,7 @@ void InitRoundParticles(uint3 id : SV_DispatchThreadID)
     roundParticleSmallDataBuffer[id.x].prevVel2 = float2(0,0);
     roundParticleSmallDataBuffer[id.x].omega = 0;
 
-    if(twoParticleMode) roundParticleSmallDataBuffer[id.x].theta = pi/2.0;
+    if(twoParticleMode || oneParticleMode) roundParticleSmallDataBuffer[id.x].theta = pi/2.0;
     else roundParticleSmallDataBuffer[id.x].theta = Random(id.x) * 2.0 * pi;
 
     roundParticleSmallDataBuffer[id.x].prevOmega1 = 0;
@@ -458,6 +459,8 @@ void ImmersedBoundary (uint3 id : SV_DispatchThreadID)
         roundParticleRoundParticlePerimeterFluidVelBuffer[id.x*particlePerimeterCount + m].y += surfaceVelocity.y;
         roundParticleRoundParticleForceOnPerimeterBuffer[id.x*particlePerimeterCount + m].x = roundParticleRoundParticlePerimeterVelBuffer[id.x*particlePerimeterCount + m].x - roundParticleRoundParticlePerimeterFluidVelBuffer[id.x*particlePerimeterCount + m].x;
         roundParticleRoundParticleForceOnPerimeterBuffer[id.x*particlePerimeterCount + m].y = roundParticleRoundParticlePerimeterVelBuffer[id.x*particlePerimeterCount + m].y - roundParticleRoundParticlePerimeterFluidVelBuffer[id.x*particlePerimeterCount + m].y;
+        // roundParticleRoundParticleForceOnPerimeterBuffer[id.x*particlePerimeterCount + m].x = -surfaceVelocity.x;
+        // roundParticleRoundParticleForceOnPerimeterBuffer[id.x*particlePerimeterCount + m].y = -surfaceVelocity.y;
 
         // 固体が外部に与える力を計算
         for(i = (int)roundParticleRoundParticlePerimeterPosBuffer[id.x*particlePerimeterCount + m].x - 3; i < (int)roundParticleRoundParticlePerimeterPosBuffer[id.x*particlePerimeterCount + m].x + 3; i++)
