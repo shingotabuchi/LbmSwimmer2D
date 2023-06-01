@@ -8,22 +8,58 @@ public class SwimmerDataWriter : MonoBehaviour
 {
     [SerializeField] LbmSwimmer2D simulation;
     [SerializeField] int[] timeSteps;
+    [SerializeField] bool distandtime;
+    [SerializeField] int totalTime;
     int dataIndex = 0;
+    string timeanddist = "";
+    string precision = "F10";
     void Update()
     {
-        if(dataIndex>=timeSteps.Length)
+        if(!distandtime)
         {
-            UnityEditor.EditorApplication.isPlaying = false;
-            return;
+            if(dataIndex>=timeSteps.Length)
+            {
+                UnityEditor.EditorApplication.isPlaying = false;
+                return;
+            }
+            if(simulation.timeFrame >= timeSteps[dataIndex])
+            {
+                simulation.FillUvBuffer();
+                simulation.FillParticleBuffer();
+                WriteField();
+                dataIndex++;
+            }
         }
-        if(simulation.timeFrame >= timeSteps[dataIndex])
+        else
         {
-            simulation.FillUvBuffer();
-            WriteField();
-            dataIndex++;
+            if(dataIndex>=totalTime)
+            {
+                WriteDistTime();
+                UnityEditor.EditorApplication.isPlaying = false;
+                return;
+            }
+            if(simulation.timeFrame >= dataIndex)
+            {
+                simulation.FillParticleBuffer();
+                float dist = (simulation.debugSmallData[0].pos - simulation.debugSmallData[1].pos).magnitude;
+                // timeanddist += simulation.timeFrame.ToString() + " "+ dist.ToString(precision) + "\n";
+                timeanddist += dist.ToString(precision) + "\n";
+                dataIndex++;
+            }
         }
+        
     }
+    void WriteDistTime()
+    {
+        float beta = simulation.squirmerBeta;
+        int time = simulation.timeFrame;
+        string parameters = beta.ToString("0") + "_" + time.ToString();
+        DateTime today = DateTime.Today;
+        string path = @"Assets/Scripts/python/" + today.ToString("yyyy/mm/dd") + "/";
+        Directory.CreateDirectory(path);
 
+        File.WriteAllText(path + "timeanddist" + parameters + ".txt", timeanddist);
+    }
     void WriteField()
     {
         string U = "";
@@ -33,7 +69,7 @@ public class SwimmerDataWriter : MonoBehaviour
         string theta= "";
         string velx= "";
         string vely= "";
-        string precision = "F10";
+        
         for (int j = 0; j < simulation.DIM_Y; j++)
         {
             for (int i = 0; i < simulation.DIM_X; i++)
@@ -85,7 +121,5 @@ public class SwimmerDataWriter : MonoBehaviour
         File.WriteAllText(path + "velx" + parameters + ".txt", velx);
         File.WriteAllText(path + "vely" + parameters + ".txt", vely);
         File.WriteAllText(path + "theta" + parameters + ".txt", theta);
-
-
     }
 }

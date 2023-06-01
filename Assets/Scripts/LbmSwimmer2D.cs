@@ -60,11 +60,15 @@ public class LbmSwimmer2D : MonoBehaviour
     public VisualEffect vfx;
     GraphicsBuffer velocityGraphicsBuffer;
     public bool showGraph;
+    public bool noRepulse;
     public Graph graph;
     public float[] uvBuffer;
     public void FillUvBuffer()
     {
         uv.GetData(uvBuffer);
+    }
+    public void FillParticleBuffer()
+    {
         roundParticleSmallDataBuffer.GetData(debugSmallData);
     }
     void OnDestroy()
@@ -224,6 +228,7 @@ public class LbmSwimmer2D : MonoBehaviour
         compute.SetInt("particlePerimeterCount",particlePerimeterCount);
         compute.SetFloat("zeta",zeta);
         compute.SetFloat("epsw",epsw);
+        compute.SetBool("noRepulse",noRepulse);
         particleInitPos = new Vector2[particleCount];
         float dist = 3 * particleRadius; 
         for(int i = 0; i < particleCount; i++)

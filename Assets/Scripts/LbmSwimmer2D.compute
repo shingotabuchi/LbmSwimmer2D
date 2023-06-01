@@ -20,6 +20,7 @@ RWStructuredBuffer<float2> velocityBuffer;
 bool isTouched;
 bool twoParticleMode;
 bool oneParticleMode;
+bool noRepulse;
 float2 touchTextureCoord;
 
 struct RoundParticleSmallData
@@ -154,10 +155,13 @@ void Collisions(uint3 id : SV_DispatchThreadID)
     //     +2.0 * (f[2+ (id.x + (DIM_Y-1)*DIM_X)*9] + f[6+ (id.x + (DIM_Y-1)*DIM_X)*9]  +f[5+ (id.x + (DIM_Y-1)*DIM_X)*9]);
     for(k = 0; k < 9; k++)
     {
-        uv[(id.x + id.y * DIM_X)*2 + 0] += f[k + (id.x + id.y * DIM_X)*9]*cx[k]/rho;
-        uv[(id.x + id.y * DIM_X)*2 + 1] += f[k + (id.x + id.y * DIM_X)*9]*cy[k]/rho;
+        uv[(id.x + id.y * DIM_X)*2 + 0] += f[k + (id.x + id.y * DIM_X)*9]*cx[k];
+        uv[(id.x + id.y * DIM_X)*2 + 1] += f[k + (id.x + id.y * DIM_X)*9]*cy[k];
     }
-
+    uv[(id.x + id.y * DIM_X)*2 + 0] += force[0 + (id.x + id.y * DIM_X)*2]/2.0;
+    uv[(id.x + id.y * DIM_X)*2 + 1] += force[1 + (id.x + id.y * DIM_X)*2]/2.0;
+    uv[(id.x + id.y * DIM_X)*2 + 0] /= rho;
+    uv[(id.x + id.y * DIM_X)*2 + 1] /= rho;
     velocityBuffer[id.x + id.y * DIM_X] = float2(uv[(id.x + id.y * DIM_X)*2 + 0],uv[(id.x + id.y * DIM_X)*2 + 1]);
 
     // if(id.y == DIM - 1) uv[(id.x + id.y * DIM_X)*2 + 0] = u0;
@@ -196,7 +200,13 @@ void Collisions(uint3 id : SV_DispatchThreadID)
     {
         float tmp = cx[k]*uv[(id.x + id.y * DIM_X)*2 + 0] + cy[k]*uv[(id.x + id.y * DIM_X)*2 + 1];     
         float f0 = wf[k]*rho*(1.0 +3.0*tmp +9.0/2.0*tmp*tmp -3.0/2.0*u2);
-        f[k + (id.x + id.y * DIM_X)*9] = f[k + (id.x + id.y * DIM_X)*9] - (f[k + (id.x + id.y * DIM_X)*9] - f0)/tauf + 3.0*wf[k]*(cx[k]*force[0 + (id.x + id.y * DIM_X)*2] + cy[k]*force[1 + (id.x + id.y * DIM_X)*2]);
+        // f[k + (id.x + id.y * DIM_X)*9] = f[k + (id.x + id.y * DIM_X)*9] - (f[k + (id.x + id.y * DIM_X)*9] - f0)/tauf + 3.0*wf[k]*(cx[k]*force[0 + (id.x + id.y * DIM_X)*2] + cy[k]*force[1 + (id.x + id.y * DIM_X)*2]);
+        f[k + (id.x + id.y * DIM_X)*9] = f[k + (id.x + id.y * DIM_X)*9] - (f[k + (id.x + id.y * DIM_X)*9] - f0)/tauf + 
+        (1.0-1.0/(2.0*tauf))*wf[k]*(
+            3.0*((cx[k]-uv[(id.x + id.y * DIM_X)*2 + 0])*force[0 + (id.x + id.y * DIM_X)*2] + (cy[k]-uv[(id.x + id.y * DIM_X)*2 + 1])*force[1 + (id.x + id.y * DIM_X)*2])
+            +9.0*tmp*(cx[k]*force[0 + (id.x + id.y * DIM_X)*2] + cy[k]*force[1 + (id.x + id.y * DIM_X)*2])
+        );
+
         f[DIM_X*DIM_Y*9 + k + (id.x + id.y * DIM_X)*9] = f[k + (id.x + id.y * DIM_X)*9];
     }
     force[0 + (id.x + id.y * DIM_X)*2] = 0.0;
@@ -361,6 +371,46 @@ void InitRoundParticles(uint3 id : SV_DispatchThreadID)
     } 
 }
 
+float DeltaFunc(float tmp)
+{
+    float pi = 3.1415926535897932384626433832795028841971693993751058209749445923078164;
+    if(tmp <= 2.0)
+    {
+        return (1.0 + cos(pi*tmp/2.0))/4.0;
+    } 
+    else 
+    {
+        return 0.0;
+    }
+}
+float DeltaFuncCrazy(float tmp)
+{
+    float pi = 3.1415926535897932384626433832795028841971693993751058209749445923078164;
+    if(tmp <= 0.5)
+    {
+        return 3.0/8.0 + pi/32.0 - tmp*tmp/4.0;
+    } 
+    else if(tmp <= 1.5)
+    {
+        return 1.0/4.0 + (1.0 - tmp)/8.0*sqrt(-2.0 + 8.0*tmp - 4*tmp*tmp) - 1.0/8.0 * asin(sqrt(2) * (tmp - 1));
+    }
+    else if(tmp <= 2.5)
+    {
+        return 17.0/16.0 - pi/64.0 + (tmp - 2)/16.0*sqrt(-14.0 + 16.0*tmp - 4.0*tmp*tmp) + 1.0/16.0 * asin(sqrt(2) * (tmp - 2)) + tmp*tmp/8.0 - 3.0*tmp/4.0;
+    }
+    else return 0.0;
+}
+
+float Interpolation(float tmp1,float tmp2)
+{
+    return DeltaFunc(tmp1)*DeltaFunc(tmp2);
+}
+
+float InterpolationCrazy(float tmp1,float tmp2)
+{
+    return DeltaFuncCrazy(tmp1)*DeltaFuncCrazy(tmp2);
+}
+
 [numthreads(64,1,1)]
 void ImmersedBoundary (uint3 id : SV_DispatchThreadID)
 {
@@ -394,20 +444,24 @@ void ImmersedBoundary (uint3 id : SV_DispatchThreadID)
         float2(0,DIM_Y),
         float2(0,-(float)DIM_Y),
     };
-    for (j = 0; j < particleCount; j++)
+    if(!noRepulse)
     {
-        if(j==(int)id.x) continue;
-        for(i = 0; i < 5; i++)
+        for (j = 0; j < particleCount; j++)
         {
-            float2 distVec = roundParticleSmallDataBuffer[id.x].pos - roundParticleSmallDataBuffer[j].pos + offsets[i];
-            tmp1 = sqrt(distVec.x * distVec.x + distVec.y*distVec.y);
-            if(tmp1 < 2.0*roundParticleSmallDataBuffer[id.x].radius + zeta){
-                roundParticleSmallDataBuffer[id.x].forceFromCollisions += (distVec)*(2.0*roundParticleSmallDataBuffer[id.x].radius - tmp1 + zeta)*(2.0*roundParticleSmallDataBuffer[id.x].radius - tmp1 + zeta)/epsw;
-                break;
-            }
-        }   
-        
+            if(j==(int)id.x) continue;
+            for(i = 0; i < 5; i++)
+            {
+                float2 distVec = roundParticleSmallDataBuffer[id.x].pos - roundParticleSmallDataBuffer[j].pos + offsets[i];
+                tmp1 = sqrt(distVec.x * distVec.x + distVec.y*distVec.y);
+                if(tmp1 < 2.0*roundParticleSmallDataBuffer[id.x].radius + zeta){
+                    roundParticleSmallDataBuffer[id.x].forceFromCollisions += (distVec)*(2.0*roundParticleSmallDataBuffer[id.x].radius - tmp1 + zeta)*(2.0*roundParticleSmallDataBuffer[id.x].radius - tmp1 + zeta)/epsw;
+                    break;
+                }
+            }   
+            
+        }
     }
+    
 
     roundParticleSmallDataBuffer[id.x].forceFromFluid.x = 0;
     roundParticleSmallDataBuffer[id.x].forceFromFluid.y = 0;
@@ -423,22 +477,7 @@ void ImmersedBoundary (uint3 id : SV_DispatchThreadID)
             {
                 tmp1 = abs(roundParticleRoundParticlePerimeterPosBuffer[id.x*particlePerimeterCount + m].x - (float)i);
                 tmp2 = abs(roundParticleRoundParticlePerimeterPosBuffer[id.x*particlePerimeterCount + m].y - (float)j);
-                if(tmp1 <= 2.0)
-                {
-                    tmp3 = (1.0 + cos(pi*tmp1/2.0))/4.0;
-                } 
-                else 
-                {
-                    tmp3 = 0.0;
-                }
-                if(tmp2 <= 2.0)
-                {
-                    tmp3 = (1.0 + cos(pi*tmp2/2.0))/4.0*tmp3;
-                }
-                else 
-                {
-                    tmp3 = 0.0;
-                }
+                tmp3 = InterpolationCrazy(tmp1,tmp2);
                 // if((j<(int)DIM_Y&&j>=0) && (i<(int)DIM_X&&i>=0))
                 // {
                 //     roundParticleRoundParticlePerimeterFluidVelBuffer[id.x*particlePerimeterCount + m].x += uv[(i + j * DIM_X)*2 + 0]*tmp3;
@@ -469,22 +508,7 @@ void ImmersedBoundary (uint3 id : SV_DispatchThreadID)
             {
                 tmp1 = abs(roundParticleRoundParticlePerimeterPosBuffer[id.x*particlePerimeterCount + m].x - (float)i);
                 tmp2 = abs(roundParticleRoundParticlePerimeterPosBuffer[id.x*particlePerimeterCount + m].y - (float)j);
-                if(tmp1 <= 2.0)
-                {
-                    tmp3 = (1.0 + cos(pi*tmp1/2.0))/4.0;
-                } 
-                else 
-                {
-                    tmp3 = 0.0;
-                }
-                if(tmp2 <= 2.0)
-                {
-                    tmp3 = (1.0 + cos(pi*tmp2/2.0))/4.0*tmp3;
-                } 
-                else 
-                {
-                    tmp3 = 0.0;
-                }
+                tmp3 = InterpolationCrazy(tmp1,tmp2);
                 // if((j<(int)DIM_Y&&j>=0) && (i<(int)DIM_X&&i>=0))
                 // {
                 //     force[0 + (i + j * DIM_X)*2] += roundParticleRoundParticleForceOnPerimeterBuffer[id.x*particlePerimeterCount + m].x * tmp3 * 2.0*pi*roundParticleSmallDataBuffer[id.x].radius/(float)roundParticleSmallDataBuffer[id.x].perimeterPointCount;
