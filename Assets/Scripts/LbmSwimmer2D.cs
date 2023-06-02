@@ -236,7 +236,8 @@ public class LbmSwimmer2D : MonoBehaviour
             if(twoParticleMode) 
             {
                 // particleInitPos[i] = new Vector2((i*2-1)*(particleRadius+twoParticleDistance)/2f + DIM_X/2f, DIM_Y/2f);
-                particleInitPos[i] = new Vector2(DIM_X/2f + (i*2-1)*(twoParticleDeviation)/2f, (i*2-1)*(twoParticleDistance)/2f + DIM_Y/2f);
+                // particleInitPos[i] = new Vector2(DIM_X/2f + (i*2-1)*(twoParticleDeviation)/2f, (i*2-1)*(twoParticleDistance)/2f + DIM_Y/2f);
+                particleInitPos[i] = new Vector2(DIM_X/2f + (i*2-1)*(twoParticleDeviation)/2f, (i*2-1)*(twoParticleDistance)/2f + 30);
             }
             else if(oneParticleMode)
             {

@@ -831,9 +831,9 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   simulation: {fileID: 1693949854}
-  timeSteps: 860600000c0d000092130000
-  distandtime: 1
-  totalTime: 10000
+  timeSteps: 10270000
+  distandtime: 0
+  totalTime: 141000
 --- !u!1 &1470476233
 GameObject:
   m_ObjectHideFlags: 0
@@ -1124,7 +1124,7 @@ MonoBehaviour:
   ra: 10000
   tauf: 0.55
   u0: 0
-  loopCount: 1
+  loopCount: 1000
   minTemp: 0
   maxTemp: 1
   minSpeed: 0
@@ -1136,10 +1136,10 @@ MonoBehaviour:
   particleRadius: 5
   epsw: 5
   zeta: 1
-  squirmerBeta: 2
+  squirmerBeta: -5
   squirmerSpeedConstant: -0.001
-  twoParticleMode: 1
-  oneParticleMode: 0
+  twoParticleMode: 0
+  oneParticleMode: 1
   twoParticleDistance: 22.5
   twoParticleDeviation: 0
   timeFrame: 0

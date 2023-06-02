@@ -41,7 +41,12 @@ public class SwimmerDataWriter : MonoBehaviour
             if(simulation.timeFrame >= dataIndex)
             {
                 simulation.FillParticleBuffer();
+                // Vector2[] offsets = new Vector2[4]{new Vector2(simulation.DIM_X,0),new Vector2(-simulation.DIM_X,0),new Vector2(0,simulation.DIM_Y),new Vector2(0,-simulation.DIM_Y)};
                 float dist = (simulation.debugSmallData[0].pos - simulation.debugSmallData[1].pos).magnitude;
+                // for (int i = 0; i < 4; i++)
+                // {
+                //     dist = Mathf.Min(dist,(simulation.debugSmallData[0].pos - simulation.debugSmallData[1].pos + offsets[i]).magnitude);
+                // }                
                 // timeanddist += simulation.timeFrame.ToString() + " "+ dist.ToString(precision) + "\n";
                 timeanddist += dist.ToString(precision) + "\n";
                 dataIndex++;
