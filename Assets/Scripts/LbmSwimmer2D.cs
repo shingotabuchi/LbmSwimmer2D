@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
@@ -61,6 +62,10 @@ public class LbmSwimmer2D : MonoBehaviour
     GraphicsBuffer velocityGraphicsBuffer;
     public bool showGraph;
     public bool noRepulse;
+    public bool writeParticleDistance;
+    public bool endnow;
+    string timeanddist = "";
+    string precision = "F10";
     public Graph graph;
     public float[] uvBuffer;
     public void FillUvBuffer()
@@ -336,8 +341,26 @@ public class LbmSwimmer2D : MonoBehaviour
         }
         else
         {
-            for (int i = 0; i < loopCount; i++)
+            for (int kk = 0; kk < loopCount; kk++)
             {
+                if(writeParticleDistance)
+                {
+                    FillParticleBuffer();
+                    Vector2[] offsets = new Vector2[4]{new Vector2(DIM_X,0),new Vector2(-DIM_X,0),new Vector2(0,DIM_Y),new Vector2(0,-DIM_Y)};
+                    float dist = (debugSmallData[0].pos - debugSmallData[1].pos).magnitude;
+                    for (int i = 0; i < 4; i++)
+                    {
+                        dist = Mathf.Min(dist,(debugSmallData[0].pos - debugSmallData[1].pos + offsets[i]).magnitude);
+                    }                
+                    // timeanddist += simulation.timeFrame.ToString() + " "+ dist.ToString(precision) + "\n";
+                    timeanddist += dist.ToString(precision) + "\n";
+                    if(dist < 10 || endnow)
+                    {
+                        WriteDistTime();
+                        UnityEditor.EditorApplication.isPlaying = false;
+                        return;
+                    }
+                }
                 timeFrame++;
                 compute.Dispatch(collisions,(DIM_X+7)/8,(DIM_Y+7)/8,1);
                 compute.Dispatch(streaming,(DIM_X+7)/8,(DIM_Y+7)/8,1);
@@ -417,5 +440,16 @@ public class LbmSwimmer2D : MonoBehaviour
 
         if(showGraph) graph.transform.gameObject.SetActive(true);
         else graph.transform.gameObject.SetActive(false);
+    }
+    void WriteDistTime()
+    {
+        float beta = squirmerBeta;
+        int time = timeFrame;
+        string parameters = beta.ToString("0.0") + "_" + time.ToString();
+        DateTime today = DateTime.Today;
+        string path = @"Assets/Scripts/python/" + today.ToString("yyyy/mm/dd") + "/";
+        Directory.CreateDirectory(path);
+
+        File.WriteAllText(path + "timeanddist" + parameters + ".txt", timeanddist);
     }
 }

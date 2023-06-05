@@ -8,6 +8,7 @@ public class SwimmerDataWriter : MonoBehaviour
 {
     [SerializeField] LbmSwimmer2D simulation;
     [SerializeField] int[] timeSteps;
+    [SerializeField] bool endnow;
     [SerializeField] bool distandtime;
     [SerializeField] int totalTime;
     int dataIndex = 0;
@@ -32,7 +33,7 @@ public class SwimmerDataWriter : MonoBehaviour
         }
         else
         {
-            if(dataIndex>=totalTime)
+            if(endnow)
             {
                 WriteDistTime();
                 UnityEditor.EditorApplication.isPlaying = false;
@@ -41,14 +42,20 @@ public class SwimmerDataWriter : MonoBehaviour
             if(simulation.timeFrame >= dataIndex)
             {
                 simulation.FillParticleBuffer();
-                // Vector2[] offsets = new Vector2[4]{new Vector2(simulation.DIM_X,0),new Vector2(-simulation.DIM_X,0),new Vector2(0,simulation.DIM_Y),new Vector2(0,-simulation.DIM_Y)};
+                Vector2[] offsets = new Vector2[4]{new Vector2(simulation.DIM_X,0),new Vector2(-simulation.DIM_X,0),new Vector2(0,simulation.DIM_Y),new Vector2(0,-simulation.DIM_Y)};
                 float dist = (simulation.debugSmallData[0].pos - simulation.debugSmallData[1].pos).magnitude;
-                // for (int i = 0; i < 4; i++)
-                // {
-                //     dist = Mathf.Min(dist,(simulation.debugSmallData[0].pos - simulation.debugSmallData[1].pos + offsets[i]).magnitude);
-                // }                
+                for (int i = 0; i < 4; i++)
+                {
+                    dist = Mathf.Min(dist,(simulation.debugSmallData[0].pos - simulation.debugSmallData[1].pos + offsets[i]).magnitude);
+                }                
                 // timeanddist += simulation.timeFrame.ToString() + " "+ dist.ToString(precision) + "\n";
                 timeanddist += dist.ToString(precision) + "\n";
+                if(dist < 10)
+                {
+                    WriteDistTime();
+                    UnityEditor.EditorApplication.isPlaying = false;
+                    return;
+                }
                 dataIndex++;
             }
         }
@@ -58,7 +65,7 @@ public class SwimmerDataWriter : MonoBehaviour
     {
         float beta = simulation.squirmerBeta;
         int time = simulation.timeFrame;
-        string parameters = beta.ToString("0") + "_" + time.ToString();
+        string parameters = beta.ToString("0.0") + "_" + time.ToString();
         DateTime today = DateTime.Today;
         string path = @"Assets/Scripts/python/" + today.ToString("yyyy/mm/dd") + "/";
         Directory.CreateDirectory(path);
@@ -114,7 +121,7 @@ public class SwimmerDataWriter : MonoBehaviour
         float beta = simulation.squirmerBeta;
         int time = simulation.timeFrame;
         if(time == 1) time = 0;
-        string parameters = beta.ToString("0") + "_" + time.ToString();
+        string parameters = beta.ToString("0.0") + "_" + time.ToString();
         DateTime today = DateTime.Today;
         string path = @"Assets/Scripts/python/" + today.ToString("yyyy/mm/dd") + "/";
         Directory.CreateDirectory(path);
