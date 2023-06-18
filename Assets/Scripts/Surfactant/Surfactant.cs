@@ -12,6 +12,8 @@ public class Surfactant : MonoBehaviour
         Phase,
         Density,
         Speed,
+        Phi,
+        C,
     }
     public PlotMode plotMode;
     public Image plotImage;
@@ -38,6 +40,8 @@ public class Surfactant : MonoBehaviour
     public bool debugMode = false;
     public bool debugFrame = false;
 
+    public float aS,bS,gammaS,B0S,B1S,DS;
+
     private void OnValidate() 
     {
         compute.SetFloat("minSpeed",minSpeed);
@@ -54,12 +58,20 @@ public class Surfactant : MonoBehaviour
         compute.SetFloat("tau_rho",tau_rho);
         compute.SetFloat("initPhase",initPhaseValue);
         compute.SetFloat("initRho",initRho);
+
+        compute.SetFloat("aS",aS);
+        compute.SetFloat("bS",bS);
+        compute.SetFloat("gammaS",gammaS);
+        compute.SetFloat("B0S",B0S);
+        compute.SetFloat("B1S",B1S);
+        compute.SetFloat("DS",DS);
     }
     Texture2D plotTexture;
     RenderTexture renderTexture;
     int init,wallInit,bulkInit,collisions,streaming,boundaries,plotSpeed,plotPhase;
-    int initPhase,plotDensity;
-    ComputeBuffer uv,f,g,phaseRho,c,phi;
+    int initPhase,plotDensity,plotPhi;
+    int cphiStep1,cphiStep2;
+    ComputeBuffer uv,f,g,phaseRho,c,phi,muC,muPhi;
     public ComputeShader compute;
     
     private void OnDestroy() {
@@ -67,6 +79,10 @@ public class Surfactant : MonoBehaviour
         f.Dispose();
         g.Dispose();
         phaseRho.Dispose();
+        c.Dispose();
+        phi.Dispose();
+        muC.Dispose();
+        muPhi.Dispose();
     }    
 
     private void Start() {
@@ -81,6 +97,8 @@ public class Surfactant : MonoBehaviour
         uv = new ComputeBuffer(DIM*DIM*2,sizeof(float));
         c = new ComputeBuffer(DIM*DIM*2,sizeof(float));
         phi = new ComputeBuffer(DIM*DIM*2,sizeof(float));
+        muC = new ComputeBuffer(DIM*DIM*2,sizeof(float));
+        muPhi = new ComputeBuffer(DIM*DIM*2,sizeof(float));
         f = new ComputeBuffer(9*DIM*DIM*2,sizeof(float));
         g = new ComputeBuffer(9*DIM*DIM*2,sizeof(float));
         phaseRho = new ComputeBuffer(DIM*DIM*2,sizeof(float));
@@ -93,23 +111,31 @@ public class Surfactant : MonoBehaviour
         init = compute.FindKernel("Init");
         compute.SetBuffer(init,"phaseRho",phaseRho);
         compute.SetBuffer(init,"phi",phi);
+        compute.SetBuffer(init,"c",c);
 
         bulkInit = compute.FindKernel("BulkNodeInit");
         compute.SetBuffer(bulkInit,"uv",uv);
         compute.SetBuffer(bulkInit,"f",f);
-        compute.SetBuffer(bulkInit,"g",g);
-        compute.SetBuffer(bulkInit,"phaseRho",phaseRho);
+        // compute.SetBuffer(bulkInit,"g",g);
+        compute.SetBuffer(bulkInit,"phi",phi);
+        compute.SetBuffer(bulkInit,"c",c);
+        // compute.SetBuffer(bulkInit,"phaseRho",phaseRho);
 
         wallInit = compute.FindKernel("WallInit");
         compute.SetBuffer(wallInit,"phaseRho",phaseRho);
 
         initPhase = compute.FindKernel("InitPhase");
+        compute.SetBuffer(initPhase,"f",f);
         compute.SetBuffer(initPhase,"g",g);
         compute.SetBuffer(initPhase,"phaseRho",phaseRho);
 
         plotPhase = compute.FindKernel("PlotPhase");
         compute.SetBuffer(plotPhase,"phaseRho",phaseRho);
         compute.SetTexture(plotPhase,"renderTexture",renderTexture);
+        
+        plotPhi = compute.FindKernel("PlotPhi");
+        compute.SetBuffer(plotPhi,"phi",phi);
+        compute.SetTexture(plotPhi,"renderTexture",renderTexture);
 
         plotSpeed = compute.FindKernel("PlotSpeed");
         compute.SetBuffer(plotSpeed,"uv",uv);
@@ -126,14 +152,25 @@ public class Surfactant : MonoBehaviour
         compute.SetBuffer(boundaries,"g",g);
 
         collisions = compute.FindKernel("Collision");
-        compute.SetBuffer(collisions,"phaseRho",phaseRho);
+        // compute.SetBuffer(collisions,"phaseRho",phaseRho);
+        compute.SetBuffer(collisions,"phi",phi);
+        compute.SetBuffer(collisions,"c",c);
         compute.SetBuffer(collisions,"uv",uv);
         compute.SetBuffer(collisions,"f",f);
-        compute.SetBuffer(collisions,"g",g);
+        // compute.SetBuffer(collisions,"g",g);
 
         streaming = compute.FindKernel("Streaming");
         compute.SetBuffer(streaming,"f",f);
         compute.SetBuffer(streaming,"g",g);
+
+        cphiStep1 = compute.FindKernel("CphiStep1");
+        compute.SetBuffer(cphiStep1,"uv",uv);
+        compute.SetBuffer(cphiStep1,"c",c);
+        compute.SetBuffer(cphiStep1,"phi",phi);
+
+        cphiStep2 = compute.FindKernel("CphiStep2");
+        compute.SetBuffer(cphiStep2,"c",c);
+        compute.SetBuffer(cphiStep2,"phi",phi);
 
         Init();
         PlotPhase();
@@ -142,7 +179,7 @@ public class Surfactant : MonoBehaviour
     void Init()
     {
         compute.Dispatch(init,(DIM+7)/8,(DIM+7)/8,1);
-        compute.Dispatch(wallInit,(DIM+63)/64,1,1);
+        // compute.Dispatch(wallInit,(DIM+63)/64,1,1);
         compute.Dispatch(bulkInit,(DIM+7)/8,(DIM+7)/8,1);
     }
 
@@ -160,6 +197,13 @@ public class Surfactant : MonoBehaviour
         plotTexture.ReadPixels(new Rect(0, 0, renderTexture.width, renderTexture.height), 0, 0);
         plotTexture.Apply();
     }
+    void PlotPhi()
+    {
+        compute.Dispatch(plotPhi,(DIM+7)/8,(DIM+7)/8,1);
+        RenderTexture.active = renderTexture;
+        plotTexture.ReadPixels(new Rect(0, 0, renderTexture.width, renderTexture.height), 0, 0);
+        plotTexture.Apply();
+    }
     void PlotSpeed()
     {
         compute.Dispatch(plotSpeed,(DIM+7)/8,(DIM+7)/8,1);
@@ -171,10 +215,13 @@ public class Surfactant : MonoBehaviour
     void Step()
     {
         compute.Dispatch(initPhase,(DIM+7)/8,(DIM+7)/8,1);
-        compute.Dispatch(wallInit,(DIM+63)/64,1,1);
+        // compute.Dispatch(wallInit,(DIM+63)/64,1,1);
         compute.Dispatch(collisions,(DIM+7)/8,(DIM+7)/8,1);
-        compute.Dispatch(boundaries,(DIM+63)/64,1,1);
-        compute.Dispatch(streaming,(DIM+7)/8,(DIM+7)/8,1);
+        // compute.Dispatch(boundaries,(DIM+63)/64,1,1);
+        // compute.Dispatch(streaming,(DIM+7)/8,(DIM+7)/8,1);
+        compute.Dispatch(cphiStep1,(DIM+7)/8,(DIM+7)/8,1);
+        compute.Dispatch(cphiStep2,(DIM+7)/8,(DIM+7)/8,1);
+
     }
 
     private void FixedUpdate() {
@@ -198,6 +245,9 @@ public class Surfactant : MonoBehaviour
             break;
             case PlotMode.Density:
             PlotDensity();
+            break;
+            case PlotMode.Phi:
+            PlotPhi();
             break;
         }
     }

@@ -344,9 +344,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: bbcda1b9f29b4d94197092ab993a2f6a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  plotMode: 0
+  plotMode: 3
   plotImage: {fileID: 140881755}
-  DIM: 120
+  DIM: 128
   tau_phi: 1
   tau_rho: 1
   loopCount: 1
@@ -364,6 +364,12 @@ MonoBehaviour:
   gammaconst: 1
   debugMode: 0
   debugFrame: 0
+  aS: 0.001
+  bS: -0.001
+  gammaS: 0
+  B0S: 0.006
+  B1S: -0.05
+  DS: 0.1
   compute: {fileID: 7200000, guid: 837e5cac72967c943b7e165bd2bf0c09, type: 3}
 --- !u!1 &1056865738
 GameObject:
