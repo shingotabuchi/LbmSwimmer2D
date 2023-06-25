@@ -1,0 +1,505 @@
+#pragma enable_d3d11_debug_symbols
+
+#pragma kernel Init
+#pragma kernel WallInit
+#pragma kernel BulkNodeInit
+#pragma kernel PlotPhase
+#pragma kernel PlotPhi
+#pragma kernel PlotSpeed
+#pragma kernel PlotDensity
+#pragma kernel BouncebackBoundary
+#pragma kernel Collision
+#pragma kernel InitPhase
+#pragma kernel Streaming
+#pragma kernel CphiStep1
+#pragma kernel CphiStep2
+int DIM;
+// float tauLiq,tauGas;
+// float omegaPhi;
+float aS,bS,gammaS,B0S,B1S,DS;
+
+float tau_phi;
+float tau_rho;
+float minSpeed,maxSpeed;
+RWTexture2D<float4> renderTexture;
+RWStructuredBuffer<float> uv,f,g,phaseRho,c,phi,muC,muPhi;
+float minRho,maxRho;
+float minPhase,maxPhase;
+float wallGradient;
+float aconst;
+float kconst;
+float initPhase;
+float initRho;
+float gammaconst;
+static float weights[]={4.0/9.0,1.0/9.0,1.0/9.0,1.0/9.0,1.0/9.0,1.0/36.0,1.0/36.0,1.0/36.0,1.0/36.0};
+static int cx[9] = {0,1,0,-1,0,1,-1,-1,1};
+static int cy[9] = {0,0,1,0,-1,1,1,-1,-1};
+static float gradstencilx[9]={0.0,4.0/12.0,0.0,-4.0/12.0,0.0,
+                    1.0/12.0,-1.0/12.0,-1.0/12.0,1.0/12.0};
+static float gradstencily[9]={0.0,0.0,4.0/12.0,0.0,-4.0/12.0,
+                    1.0/12.0,1.0/12.0,-1.0/12.0,-1.0/12.0};
+static float laplacestencil[9]={-20.0/6.0,4.0/6.0,4.0/6.0,4.0/6.0,4.0/6.0,
+                    1.0/6.0,1.0/6.0,1.0/6.0,1.0/6.0};
+static float laplacestencilsimple[9]={-4,1,1,1,1,0,0,0,0};
+static float wxx[] = {0.0, 1.0/3.0, -1.0/6.0, 1.0/3.0, -1.0/6.0, -1.0/24.0, -1.0/24.0, -1.0/24.0, -1.0/24.0};
+static float wyy[] = {0.0, -1.0/6.0, 1.0/3.0, -1.0/6.0, 1.0/3.0, -1.0/24.0, -1.0/24.0, -1.0/24.0, -1.0/24.0};
+static float wxy[] = {0.0, 0.0, 0.0, 0.0, 0.0, 1.0/4.0, -1.0/4.0, 1.0/4.0, -1.0/4.0};
+static float4 colorsOfMap[7] = 
+{
+    float4(0,0,0,1),
+    float4(0,0,1,1),
+    float4(0,1,1,1),
+    float4(0,1,0,1),
+    float4(1,1,0,1),
+    float4(1,0,0,1),
+    float4(1,1,1,1),
+};
+
+int DIMSqrd; 
+int DIMSqrd9; 
+
+static float colorPerc = 1.0 / (7.0-1.0);
+uint Hash(uint s)
+{
+    s ^= 2747636419u;
+    s *= 2654435769u;
+    s ^= s >> 16;
+    s *= 2654435769u;
+    s ^= s >> 16;
+    s *= 2654435769u;
+    return s;
+}
+
+float Random(uint seed)
+{
+    return float(Hash(seed)) / 4294967295.0; // 2^32-1
+}
+float GradXPlus(RWStructuredBuffer<float> buffer,int x, int y,int bufferOffset)
+{
+    // if(x+1 >= DIM) return 0.0;
+    int index0 = bufferOffset + (x+1+DIM)%(uint)DIM + y*DIM;
+    int index1 = bufferOffset + x + y*DIM;
+    return buffer[index0] - buffer[index1];
+}
+float GradXMinus(RWStructuredBuffer<float> buffer,int x, int y,int bufferOffset)
+{
+    // if(x-1 < 0) return 0.0;
+    int index0 = bufferOffset + x + y*DIM;
+    int index1 = bufferOffset + (x-1+DIM)%(uint)DIM + y*DIM;
+    return buffer[index0] - buffer[index1];
+}
+float GradYPlus(RWStructuredBuffer<float> buffer,int x, int y,int bufferOffset)
+{
+    // if(y+1 >= DIM) return 0.0;
+    int index0 = bufferOffset + x + ((y+1+DIM)%(uint)DIM)*DIM;
+    int index1 = bufferOffset + x + y*DIM;
+    return buffer[index0] - buffer[index1];
+}
+float GradYMinus(RWStructuredBuffer<float> buffer,int x, int y,int bufferOffset)
+{
+    // if(y-1 < 0) return 0.0;
+    int index0 = bufferOffset + x + y*DIM;
+    int index1 = bufferOffset + x + ((y-1+DIM)%(uint)DIM)*DIM;
+    return buffer[index0] - buffer[index1];
+}
+
+float GradXCentered(RWStructuredBuffer<float> buffer,int x, int y,int bufferOffset)
+{
+    // if(x+1 >= DIM) return 0.0;
+    int index0 = bufferOffset + (x+1+DIM)%(uint)DIM + y*DIM;
+    int index1 = bufferOffset + (x-1+DIM)%(uint)DIM + y*DIM;
+    return (buffer[index0] - buffer[index1])*0.5;
+}
+float GradYCentered(RWStructuredBuffer<float> buffer,int x, int y,int bufferOffset)
+{
+    // if(y+1 >= DIM) return 0.0;
+    int index0 = bufferOffset + x + ((y+1+DIM)%(uint)DIM)*DIM;
+    int index1 = bufferOffset + x + ((y-1+DIM)%(uint)DIM)*DIM;
+    return (buffer[index0] - buffer[index1])*0.5;
+}
+float Laplacian(RWStructuredBuffer<float> buffer,int x, int y,int bufferOffset)
+{
+    float laplacian = 0.0;
+    int k;
+    for(k = 0; k < 9; k++)
+    {
+        int i1=((uint)(x+cx[k]+DIM)) % (uint)DIM;
+        int j1=((uint)(y+cy[k]+DIM)) % (uint)DIM;
+        // laplacian += laplacestencilsimple[k]*buffer[i1 + j1*DIM + bufferOffset];
+        laplacian += laplacestencil[k]*buffer[i1 + j1*DIM + bufferOffset];
+    }
+    return laplacian;
+}
+float LaplacianPower3(RWStructuredBuffer<float> buffer,int x, int y,int bufferOffset)
+{
+    float laplacianPower3 = 0.0;
+    int k;
+    for(k = 0; k < 9; k++)
+    {
+        int i1=((uint)(x+cx[k]+DIM)) % (uint)DIM;
+        int j1=((uint)(y+cy[k]+DIM)) % (uint)DIM;
+        float tmp = buffer[i1 + j1*DIM + bufferOffset]*buffer[i1 + j1*DIM + bufferOffset]*buffer[i1 + j1*DIM + bufferOffset];
+        // laplacianPower3 += laplacestencilsimple[k]*tmp;
+        laplacianPower3 += laplacestencil[k]*tmp;
+    }
+    return laplacianPower3;
+}
+float LaplacianDouble(RWStructuredBuffer<float> buffer,int x, int y,int bufferOffset)
+{
+    float laplacianDouble = 0.0;
+    int k;
+    for(k = 0; k < 9; k++)
+    {
+        int i1=((uint)(x+cx[k]+DIM)) % (uint)DIM;
+        int j1=((uint)(y+cy[k]+DIM)) % (uint)DIM;
+        // laplacianDouble += laplacestencilsimple[k]*Laplacian(buffer,i1,j1,bufferOffset);
+        laplacianDouble += laplacestencil[k]*Laplacian(buffer,i1,j1,bufferOffset);
+    }
+    return laplacianDouble;
+}
+float MuC(int x, int y,int bufferOffset)
+{
+    float gradPhi[2] = {GradXCentered(phi,x,y,bufferOffset),GradYCentered(phi,x,y,bufferOffset)};
+    return log(c[x + y*DIM + bufferOffset]) + 1.0 + 0.5*B1S*(gradPhi[0]*gradPhi[0] + gradPhi[1]*gradPhi[1]);
+}
+float MuPhi(int x, int y,int bufferOffset)
+{
+    int index = x + y*DIM + bufferOffset;
+    float gradPhi[2] = {GradXCentered(phi,x,y,bufferOffset),GradYCentered(phi,x,y,bufferOffset)};
+    float gradC[2] = {GradXCentered(c,x,y,bufferOffset),GradYCentered(c,x,y,bufferOffset)};
+    return aS * phi[index] + bS *phi[index]*phi[index]*phi[index] 
+    - (B0S-B1S*c[index]) * Laplacian(phi,x,y,bufferOffset)
+    - B1S * (gradPhi[0]*gradC[0] + gradPhi[1]*gradC[1]);
+}
+float4 ColorMap(float val, float maxVal)
+{
+    if(val > maxVal) val = maxVal;
+    float valPerc = val / maxVal;// value%
+    int blockIdx = (int)(valPerc / colorPerc);// Idx of 
+    float valPercResidual = valPerc - (blockIdx*colorPerc);//remove the part represented of block 
+    float percOfColor = valPercResidual / colorPerc;// % of color of this block that will be filled
+    float4 cTarget = colorsOfMap[blockIdx];
+    float deltaR = 0;
+    float deltaG = 0;
+    float deltaB = 0;
+
+    if(blockIdx != 6)
+    {
+        float4 cNext = colorsOfMap[blockIdx + 1];
+        deltaR =cNext.x - cTarget.x;
+        deltaG =cNext.y - cTarget.y;
+        deltaB =cNext.z - cTarget.z;
+    }
+
+    float R = cTarget.r + (deltaR * percOfColor);
+    float G = cTarget.g + (deltaG * percOfColor);
+    float B = cTarget.b + (deltaB * percOfColor);
+
+    return float4(R,G,B,1.0);
+}
+
+void Collide(uint3 id,bool initial)
+{
+    int i = (int)id.x;
+    int j = (int)id.y;
+    int index = i + j*DIM;
+    int k,i1,j1;
+
+    uv[(i + j * DIM)*2 + 0] = 0.0; 
+    uv[(i + j * DIM)*2 + 1] = 0.0;
+    float force[2] = {
+        -phi[index]*0.5*(MuPhi((i+1)%(uint)DIM,j,0) - MuPhi((i-1+DIM)%(uint)DIM,j,0))
+        -c[index]*0.5*(MuC((i+1)%(uint)DIM,j,0) - MuC((i-1+DIM)%(uint)DIM,j,0)),
+        -phi[index]*0.5*(MuPhi(i,(j+1)%(uint)DIM,0) - MuPhi(i,(j-1+DIM)%(uint)DIM,0))
+        -c[index]*0.5*(MuC(i,(j+1)%(uint)DIM,0) - MuC(i,(j-1+DIM)%(uint)DIM,0))
+    };
+    float dense_temp=initRho;
+
+    if(!initial)
+    {
+        dense_temp=0.0;
+        for(k=0;k<9;k++)
+        {
+            dense_temp+=f[k + (i + j*DIM)*9];
+            uv[(i + j * DIM)*2 + 0]+=f[k + (i + j*DIM)*9]*cx[k];
+            uv[(i + j * DIM)*2 + 1]+=f[k + (i + j*DIM)*9]*cy[k];
+        }
+
+        uv[(i + j * DIM)*2 + 0]=(uv[(i + j * DIM)*2 + 0] + 0.5 *force[0])/dense_temp;
+        uv[(i + j * DIM)*2 + 1]=(uv[(i + j * DIM)*2 + 1] + 0.5 *force[1])/dense_temp;
+    }
+
+    float ux_temp=uv[(i + j * DIM)*2 + 0];
+    float uy_temp=uv[(i + j * DIM)*2 + 1];
+    float feqeq,geqeq;
+    float omega_rho = 1.0/tau_rho;
+    float omega_phi = 1.0/tau_phi;
+
+    for (k=0; k<9; k++)
+    {
+        if(k == 0)
+        {
+            feqeq = weights[k] * dense_temp * (
+                1.0 + 3.0*(cx[k]*ux_temp+cy[k]*uy_temp)
+                + 4.5*(cx[k]*ux_temp+cy[k]*uy_temp)*(cx[k]*ux_temp+cy[k]*uy_temp)
+                -1.5 * (ux_temp*ux_temp + uy_temp*uy_temp)
+            );
+
+            // geqeq= phase_temp - (5.0/9.0) * gammaconst * chemical_pot;
+        }
+        else
+        {
+            feqeq = weights[k] * dense_temp * (
+                1.0 + 3.0*(cx[k]*ux_temp+cy[k]*uy_temp)
+                + 4.5*(cx[k]*ux_temp+cy[k]*uy_temp)*(cx[k]*ux_temp+cy[k]*uy_temp)
+                -1.5 * (ux_temp*ux_temp + uy_temp*uy_temp)
+            );
+
+            // geqeq=weights[k]*(gammaconst*chemical_pot+3.0*phase_temp*(cx[k]*ux_temp+cy[k]*uy_temp));
+        }
+        float forcingTerm = weights[k] * (1.0 - 0.5 * omega_rho) * (
+            3.0*((cx[k] - ux_temp) * force[0] + (cy[k] - uy_temp) * force[1])
+            +9.0 * (cx[k]*ux_temp+cy[k]*uy_temp) * (cx[k] * force[0] + cy[k] * force[1])
+        );
+        int i1=(int)(((uint)(i+cx[k]+DIM)) % (uint)DIM);
+        int j1=(int)(((uint)(j+cy[k]+DIM)) % (uint)DIM);
+        f[DIMSqrd9 + k + (i1 + j1*DIM)*9]=f[k + (i + j*DIM)*9]*(1.0-omega_rho)+omega_rho*feqeq + forcingTerm;
+        // g[DIMSqrd9 + k + (i1 + j1*DIM)*9]=0;
+    }
+}
+
+[numthreads(8, 8, 1)]
+void Init(uint3 id : SV_DispatchThreadID)
+{
+    int i = (int)id.x;
+    int j = (int)id.y;
+    // if((abs(i - DIM/2.0) <= 20) && (j < 40) && (j >= 1))
+    if((abs(i - DIM/2.0) <= 32) && (abs(j - DIM/2.0) <= 32))
+    {
+        phaseRho[i + j*DIM] = initPhase;
+        phi[i + j*DIM] = initPhase;
+    }
+    else
+    {
+        phaseRho[i + j*DIM] = -initPhase;
+        phi[i + j*DIM] = -initPhase;
+    }
+    // phaseRho[i + j*DIM] = Random(id.x + id.y*DIM) * initPhase * 2.0 - initPhase;
+    // phi[i + j*DIM] = Random(id.x + id.y*DIM) * initPhase * 2.0 - initPhase;
+    phi[DIMSqrd + i + j*DIM] = phi[i + j*DIM];
+    c[i + j*DIM] = 0.1;
+};
+
+[numthreads(64, 1, 1)]
+void WallInit(uint3 id : SV_DispatchThreadID)
+{
+    int i = (int)id.x;
+    phaseRho[i + 0*DIM] = phaseRho[i + 1*DIM] - wallGradient;
+    phaseRho[i + (DIM-1)*DIM] = phaseRho[i + (DIM-2)*DIM] - wallGradient;
+}
+
+[numthreads(8, 8, 1)]
+void BulkNodeInit(uint3 id : SV_DispatchThreadID)
+{
+    Collide(id,true);
+}
+
+[numthreads(8, 8, 1)]
+void InitPhase(uint3 id : SV_DispatchThreadID)
+{
+    int i = (int)id.x;
+    int j = (int)id.y;
+    int k;
+    phaseRho[i + j*DIM] = 0.0;
+    for(k = 0; k < 9; k++)
+    {
+        f[k + (i + j*DIM)*9] = f[DIMSqrd9 + k + (i + j*DIM)*9];
+        // g[k + (i + j*DIM)*9] = g[DIMSqrd9 + k + (i + j*DIM)*9];
+        // phaseRho[i + j*DIM] += g[k + (i + j*DIM)*9];
+    }
+}
+
+[numthreads(8, 8, 1)]
+void PlotPhase(uint3 id : SV_DispatchThreadID)
+{
+    int i = (int)id.x;
+    int j = (int)id.y;
+    float phase = phaseRho[i + j*DIM];
+    renderTexture[id.xy] = ColorMap(phase-minPhase,maxPhase-minPhase);
+}
+[numthreads(8, 8, 1)]
+void PlotPhi(uint3 id : SV_DispatchThreadID)
+{
+    int i = (int)id.x;
+    int j = (int)id.y;
+    float phase = phi[i + j*DIM];
+    renderTexture[id.xy] = ColorMap(phase-minPhase,maxPhase-minPhase);
+}
+[numthreads(8, 8, 1)]
+void PlotSpeed(uint3 id : SV_DispatchThreadID)
+{
+    int i = (int)id.x;
+    int j = (int)id.y;
+    float speed = sqrt(uv[(i + j * DIM)*2 + 0] * uv[(i + j * DIM)*2 + 0] + uv[(i + j * DIM)*2 + 1] * uv[(i + j * DIM)*2 + 1]);
+    renderTexture[id.xy] = ColorMap(speed-minSpeed,maxSpeed-minSpeed);
+}
+[numthreads(8, 8, 1)]
+void PlotDensity(uint3 id : SV_DispatchThreadID)
+{
+    int i = (int)id.x;
+    int j = (int)id.y;
+    float density = phaseRho[DIM*DIM + i + j*DIM];
+    renderTexture[id.xy] = ColorMap(density-minRho,maxRho-minRho);
+}
+
+[numthreads(64, 1, 1)]
+void BouncebackBoundary(uint3 id : SV_DispatchThreadID)
+{
+    int i = (int)id.x;
+    int iXtop=(int)(((uint)(i+1+DIM))%(uint)DIM);
+    int iXbottom=(int)(((uint)(i-1+DIM))%(uint)DIM);
+
+    f[DIMSqrd9 + 2 + (i + 0*DIM)*9]=f[DIMSqrd9 + 4 + (i + 1*DIM)*9];
+    f[DIMSqrd9 + 5 + (i + 0*DIM)*9]=f[DIMSqrd9 + 7 + (iXtop + 1*DIM)*9];
+    f[DIMSqrd9 + 6 + (i + 0*DIM)*9]=f[DIMSqrd9 + 8 + (iXbottom + 1*DIM)*9];
+
+    f[DIMSqrd9 + 4 + (i + (DIM-1)*DIM)*9]=f[DIMSqrd9 + 2 + (i + (DIM-2)*DIM)*9];
+    f[DIMSqrd9 + 7 + (i + (DIM-1)*DIM)*9]=f[DIMSqrd9 + 5 + (iXbottom + (DIM-2)*DIM)*9];
+    f[DIMSqrd9 + 8 + (i + (DIM-1)*DIM)*9]=f[DIMSqrd9 + 6 + (iXtop + (DIM-2)*DIM)*9];
+
+
+    g[DIMSqrd9 + 2 + (i + 0*DIM)*9]=g[DIMSqrd9 + 4 + (i + 1*DIM)*9];
+    g[DIMSqrd9 + 5 + (i + 0*DIM)*9]=g[DIMSqrd9 + 7 + (iXtop + 1*DIM)*9];
+    g[DIMSqrd9 + 6 + (i + 0*DIM)*9]=g[DIMSqrd9 + 8 + (iXbottom + 1*DIM)*9];
+
+    g[DIMSqrd9 + 4 + (i + (DIM-1)*DIM)*9]=g[DIMSqrd9 + 2 + (i + (DIM-2)*DIM)*9];
+    g[DIMSqrd9 + 7 + (i + (DIM-1)*DIM)*9]=g[DIMSqrd9 + 5 + (iXbottom + (DIM-2)*DIM)*9];
+    g[DIMSqrd9 + 8 + (i + (DIM-1)*DIM)*9]=g[DIMSqrd9 + 6 + (iXtop + (DIM-2)*DIM)*9];
+
+    phaseRho[DIMSqrd + i + 0*DIM] = initRho;
+    phaseRho[DIMSqrd + i + (DIM-1)*DIM] = initRho;
+    uv[(i + 0 * DIM)*2 + 0] = 0.0; 
+    uv[(i + 0 * DIM)*2 + 1] = 0.0;
+    uv[(i + (DIM-1) * DIM)*2 + 0] = 0.0; 
+    uv[(i + (DIM-1) * DIM)*2 + 1] = 0.0;
+}
+
+[numthreads(8, 8, 1)]
+void Collision(uint3 id : SV_DispatchThreadID)
+{
+    Collide(id,false);
+}
+
+[numthreads(8, 8, 1)]
+void Streaming(uint3 id : SV_DispatchThreadID)
+{
+    int i = (int)id.x;
+    int j = (int)id.y;
+    int k,i1,j1;
+    for(k=0;k<9;k++)
+    {
+        int i1=(int)(((uint)(i-cx[k]+DIM)) % (uint)DIM);
+        int j1=(int)(((uint)(j-cy[k]+DIM)) % (uint)DIM);
+        f[k + (i + j*DIM)*9] = f[DIMSqrd9 + k + (i1 + j1*DIM)*9];
+        // g[k + (i + j*DIM)*9] = g[DIMSqrd9 + k + (i1 + j1*DIM)*9];
+    }
+}
+
+[numthreads(8, 8, 1)]
+void CphiStep2(uint3 id : SV_DispatchThreadID)
+{
+    int i = (int)id.x;
+    int j = (int)id.y;
+    int index = i + j*DIM;
+    float lapGradCGradPhi = 0.0;
+    float lapMuC = 0.0;
+    int k;
+    for(k = 0; k < 9; k++)
+    {
+        int i1=((uint)(i+cx[k]+DIM)) % (uint)DIM;
+        int j1=((uint)(j+cy[k]+DIM)) % (uint)DIM;
+        // lapGradCGradPhi += laplacestencilsimple[k]*
+        lapGradCGradPhi += laplacestencil[k]*
+        (
+            GradXCentered(c,i1,j1,DIMSqrd) * GradXCentered(phi,i1,j1,DIMSqrd) 
+            +GradYCentered(c,i1,j1,DIMSqrd) * GradYCentered(phi,i1,j1,DIMSqrd) 
+        );
+
+        // lapMuC += laplacestencilsimple[k] * MuC(i1,j1,DIMSqrd);
+        lapMuC += laplacestencil[k] * MuC(i1,j1,DIMSqrd);
+    }
+
+    float gradC[2] = {GradXCentered(c,i,j,DIMSqrd),GradYCentered(c,i,j,DIMSqrd)};
+    float gradPhi[2] = {GradXCentered(phi,i,j,DIMSqrd),GradYCentered(phi,i,j,DIMSqrd)};
+    
+    phi[index] = phi[DIMSqrd + index] 
+    + aS*Laplacian(phi,i,j,DIMSqrd)
+    // + bS*LaplacianPower3(phi,i,j,DIMSqrd)
+    + bS*(
+        6.0 * phi[DIMSqrd + index]*(
+            gradPhi[0]*gradPhi[0] + gradPhi[1]*gradPhi[1]
+        )
+        +3.0*phi[DIMSqrd + index]*phi[DIMSqrd + index]*Laplacian(phi,i,j,DIMSqrd)
+    )
+    - (B0S + B1S*c[DIMSqrd + index]) * LaplacianDouble(phi,i,j,DIMSqrd)
+    - B1S * lapGradCGradPhi;
+    
+    float gradMuC[2] = {
+        0.5*(MuC((i+1)%(uint)DIM,j,DIMSqrd) - MuC((i-1+DIM)%(uint)DIM,j,DIMSqrd)),
+        0.5*(MuC(i,(j+1)%(uint)DIM,DIMSqrd) - MuC(i,(j-1+DIM)%(uint)DIM,DIMSqrd))
+    };
+
+    c[index] = c[DIMSqrd + index]
+    + DS * (gradC[0]*gradMuC[0] + gradC[1]*gradMuC[1] + c[DIMSqrd + index]*lapMuC);
+}
+
+[numthreads(8, 8, 1)]
+void CphiStep1(uint3 id : SV_DispatchThreadID)
+{
+    int i = (int)id.x;
+    int j = (int)id.y;
+
+    int indexXp=j*DIM+(i + 1 + DIM)%(uint)DIM;
+    int indexXm=j*DIM+(i - 1 + DIM)%(uint)DIM;
+    int indexYp=((j + 1 + DIM)%(uint)DIM)*DIM+i;
+    int indexYm=((j - 1 + DIM)%(uint)DIM)*DIM+i;
+
+    int index = i + j*DIM;
+    float divU = 0.5*(uv[indexYp*2 + 1] - uv[indexYm*2 + 1] + uv[indexXp*2 + 0] - uv[indexXm*2 + 0]);
+
+    float gradxPhi = 0;
+    float gradyPhi = 0;
+    float gradxC = 0;
+    float gradyC = 0;
+    if(uv[index*2 + 0] > 0)
+    {
+        gradxPhi = GradXMinus(phi,i,j,0);
+        gradxC = GradXMinus(c,i,j,0);
+    } 
+    if(uv[index*2 + 0] < 0 )
+    {
+        gradxPhi = GradXPlus(phi,i,j,0);
+        gradxC = GradXPlus(c,i,j,0);
+    } 
+    if(uv[index*2 + 1] > 0)
+    {
+        gradyPhi = GradYMinus(phi,i,j,0);
+        gradyC = GradYMinus(c,i,j,0);
+    } 
+    if(uv[index*2 + 1] < 0 )
+    {
+        gradyPhi = GradYPlus(phi,i,j,0);
+        gradyC = GradYPlus(c,i,j,0);
+    } 
+
+    float uDotGradPhi = uv[index*2 + 0] * gradxPhi + uv[index*2 + 1] * gradyPhi;
+    float uDotGradC = uv[index*2 + 0] * gradxC + uv[index*2 + 1] * gradyC;
+
+    phi[DIMSqrd + index] = phi[index] - (phi[index]*divU + uDotGradPhi);
+    c[DIMSqrd + index] = c[index] - (c[index]*divU + uDotGradC);
+}
+
+
+
+
+
