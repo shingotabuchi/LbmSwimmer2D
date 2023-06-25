@@ -235,30 +235,30 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0a6ebdd7cf17b6740bb2b16e46a33ca1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  nx: 64
-  ny: 64
+  nx: 256
+  ny: 256
   plotImage: {fileID: 1987979154}
   vl: 1
   vg: 0.17
-  taut: 1
-  rhol: 1
-  rhog: 0.9
+  taut: 2
+  rhol: 5.91
+  rhog: 0.58
   maxrho: 5.91
   minrho: 0.58
   maxtemp: 0.93
   mintemp: 0.9
   radius: 100
-  gs: 3
+  gs: -0.27
   grav: -0.000003
-  initTr: 0.9
+  initTr: 0.82
   cv: 6
   loopCount: 1
   periodic: 0
-  initMode: 0
+  initMode: 4
   plotMode: 1
   minspeed: 0
   maxspeed: 0.5
-  walltempr: 0.93
+  walltempr: 0.86
   wallrho: 5.91
   vfx: {fileID: 2004255200}
   compute: {fileID: 7200000, guid: c3aab99fddccaeb4f867e4333b142099, type: 3}
@@ -613,7 +613,7 @@ VisualEffect:
         m_Overridden: 0
     m_Vector4f:
       m_Array:
-      - m_Value: {x: 1, y: 1, z: 1, w: 0}
+      - m_Value: {x: 0, y: 0, z: 0, w: 0}
         m_Name: Color
         m_Overridden: 1
     m_Uint:

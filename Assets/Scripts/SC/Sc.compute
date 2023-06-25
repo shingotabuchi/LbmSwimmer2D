@@ -200,11 +200,12 @@ void init(uint3 id : SV_DispatchThreadID)
 [numthreads(64, 1, 1)]
 void plotPass(uint3 id : SV_DispatchThreadID)
 {
+    int k;
     int i = (int)id.x;
     float Tc = (0.0778*a)/(0.45724*b*R);
     rhot[i]=0; 
     rhot[nxy1 + i]=0; 
-    for (int k=0; k<9; k++ )
+    for (k=0; k<9; k++ )
     {			
         f[9*i+k] = f[nxy9 + 9*i+k];
         rhot[i]+=f[9*i+k]; 
@@ -296,10 +297,7 @@ void collisionStreaming(uint3 id : SV_DispatchThreadID)
     {
         int iX2=(iX+cx[k]+nx) % (uint)nx; 
         int iY2=(iY+cy[k]+ny) % (uint)ny;
-        // if(iY == 0 && cy[k] == -1) continue;
-        // if(iY == ny-1 && cy[k] == 1) continue;
         float denseNear = rhot[nx*iY2+iX2];
-        // float phi = PotentialSimple(rhot[nx*iY2+iX2]);
         float g = 0.5;
         if(k < 5) g = 2.0;
         float s = 0.0;
@@ -312,8 +310,10 @@ void collisionStreaming(uint3 id : SV_DispatchThreadID)
             // fx+=g * gs * cx[k]*phi0 *phi0 * (1.0-beta)/2.0;
             // fy+=g * gs * cy[k]*phi0 *phi0 * (1.0-beta)/2.0;
 
-            fx+=-0.27 * weights[k] * cx[k] * phiS;
-            fy+=-0.27 * weights[k] * cy[k] * phiS;
+            // fx+=0.27 * weights[k] * cx[k] * phiS;
+            // fy+=0.27 * weights[k] * cy[k] * phiS;
+            fx+=-gs * weights[k] * cx[k] * phi0;
+            fy+=-gs * weights[k] * cy[k] * phi0;
         }
         else
         {
@@ -331,8 +331,10 @@ void collisionStreaming(uint3 id : SV_DispatchThreadID)
 
     // v1=u1[i]=(f[9*i+1]-f[9*i+3]+f[9*i+5]-f[9*i+6]-f[9*i+7]+f[9*i+8])/dense+fx/(2.0*dense); 
     // v2=u2[i]=(f[9*i+2]-f[9*i+4]+f[9*i+5]+f[9*i+6]-f[9*i+7]-f[9*i+8])/dense+fy/(2.0*dense); 
-    v1=uv[i*2 + 0]=(f[9*i+1]-f[9*i+3]+f[9*i+5]-f[9*i+6]-f[9*i+7]+f[9*i+8])/dense; 
-    v2=uv[i*2 + 1]=(f[9*i+2]-f[9*i+4]+f[9*i+5]+f[9*i+6]-f[9*i+7]-f[9*i+8])/dense; 
+    uv[i*2 + 0]=(f[9*i+1]-f[9*i+3]+f[9*i+5]-f[9*i+6]-f[9*i+7]+f[9*i+8])/dense; 
+    uv[i*2 + 1]=(f[9*i+2]-f[9*i+4]+f[9*i+5]+f[9*i+6]-f[9*i+7]-f[9*i+8])/dense; 
+    v1=uv[i*2 + 0];
+    v2=uv[i*2 + 1];
     float feq[9];
     Feq(dense,v1,v2,feq);
 
@@ -371,76 +373,27 @@ void bouncebackBoundary(uint3 id : SV_DispatchThreadID)
     float Tc = (0.0778*a)/(0.45724*b*R);
     float walltemp = walltempr * Tc;
     float ux,uy,rhob,dense,temp;
-    // float uxUpper,uxLower;
-    float uyUpper,uyLower;
-    float denseUpper,denseLower;
+    float sumOfRest;
     int k;
 
-    denseLower = f[nxy9 + 0 + (i + 0*nx)*9] + f[nxy9 + 1 + (i + 0*nx)*9] + f[nxy9 + 3 + (i + 0*nx)*9] + 2.0 * (f[nxy9 + 4 + (i + 0*nx)*9] + f[nxy9 + 7 + (i + 0*nx)*9] + f[nxy9 + 8 + (i + 0*nx)*9]);
-    denseUpper = f[nxy9 + 0 + (i + (ny-1)*nx)*9] + f[nxy9 + 1 + (i + (ny-1)*nx)*9] + f[nxy9 + 3 + (i + (ny-1)*nx)*9] + 2.0 * (f[nxy9 + 2 + (i + (ny-1)*nx)*9] + f[nxy9 + 5 + (i + (ny-1)*nx)*9] + f[nxy9 + 6 + (i + (ny-1)*nx)*9]);
-    uyLower = 1-(g[nxy9 + 0 + (i + 0*nx)*9] + g[nxy9 + 1 + (i + 0*nx)*9] + g[nxy9 + 3 + (i + 0*nx)*9] + 2.0 * (g[nxy9 + 4 + (i + 0*nx)*9] + g[nxy9 + 7 + (i + 0*nx)*9] + g[nxy9 + 8 + (i + 0*nx)*9]))/walltemp;
-    uyUpper = -1+(g[nxy9 + 0 + (i + (ny-1)*nx)*9] + g[nxy9 + 1 + (i + (ny-1)*nx)*9] + g[nxy9 + 3 + (i + (ny-1)*nx)*9] + 2.0 * (g[nxy9 + 2 + (i + (ny-1)*nx)*9] + g[nxy9 + 5 + (i + (ny-1)*nx)*9] + g[nxy9 + 6 + (i + (ny-1)*nx)*9]))/walltemp;
-    // uyLower = 0.0;
-    // uyUpper = 0.0;
-    ux = 0;
-    uy = 0;
-    // ux = uv[(i + 0*nx)*2 + 0];
-    // uy = uv[(i + 0*nx)*2 + 1];
-    // dense = rhot[i + 0*nx];
-    dense = denseLower;
-    f[nxy9 + 2 + (i + 0*nx)*9]=f[nxy9 + 4 + (i + 0*nx)*9] + (2.0 * dense * uy)/3.0;
-    f[nxy9 + 5 + (i + 0*nx)*9]=f[nxy9 + 7 + (i + 0*nx)*9] + (f[nxy9 + 3 + (i + 0*nx)*9] - f[nxy9 + 1 + (i + 0*nx)*9])/2.0 + 0.5 * dense * ux + (1.0/6.0) * dense * uy;
-    f[nxy9 + 6 + (i + 0*nx)*9]=f[nxy9 + 8 + (i + 0*nx)*9] + (f[nxy9 + 1 + (i + 0*nx)*9] - f[nxy9 + 3 + (i + 0*nx)*9])/2.0 - 0.5 * dense * ux + (1.0/6.0) * dense * uy;
+    f[nxy9 + 2 + (i + 0*nx)*9]=f[nxy9 + 4 + (i + 0*nx)*9];
+    f[nxy9 + 5 + (i + 0*nx)*9]=f[nxy9 + 7 + (i + 0*nx)*9] + (f[nxy9 + 3 + (i + 0*nx)*9] - f[nxy9 + 1 + (i + 0*nx)*9])/2.0;
+    f[nxy9 + 6 + (i + 0*nx)*9]=f[nxy9 + 8 + (i + 0*nx)*9] + (f[nxy9 + 1 + (i + 0*nx)*9] - f[nxy9 + 3 + (i + 0*nx)*9])/2.0;
 
-    // ux = 0;
-    // uy = 0;
-    // ux = uv[(i + 0*nx)*2 + 0];
-    // uy = uv[(i + 0*nx)*2 + 1];
     temp = walltemp;
-    g[nxy9 + 2 + (i + 0*nx)*9]=g[nxy9 + 4 + (i + 0*nx)*9] + (2.0 * temp * uyLower)/3.0;
-    g[nxy9 + 5 + (i + 0*nx)*9]=g[nxy9 + 7 + (i + 0*nx)*9] + (g[nxy9 + 3 + (i + 0*nx)*9] - g[nxy9 + 1 + (i + 0*nx)*9])/2.0 + (1.0/6.0) * temp * uyLower;
-    g[nxy9 + 6 + (i + 0*nx)*9]=g[nxy9 + 8 + (i + 0*nx)*9] + (g[nxy9 + 1 + (i + 0*nx)*9] - g[nxy9 + 3 + (i + 0*nx)*9])/2.0 + (1.0/6.0) * temp * uyLower;
-    // for(k = 0; k < 9; k++)
-    // {
-    //     g[nxy9 + k + (i + 0*nx)*9] = g[nxy9 + k + (i + 1*nx)*9];
-    // }
-    // g[nxy9 + 2 + (i + 0*nx)*9] = -g[nxy9 + 4 + (i + 1*nx)*9] + walltemp * weights[2] * 2.0;
-    // g[nxy9 + 5 + (i + 0*nx)*9] = -g[nxy9 + 7 + ((i+1+nx)%(uint)nx + 1*nx)*9] + walltemp * weights[5] * 2.0;
-    // g[nxy9 + 6 + (i + 0*nx)*9] = -g[nxy9 + 8 + ((i-1+nx)%(uint)nx + 1*nx)*9] + walltemp * weights[6] * 2.0;
-    
+    sumOfRest = g[nxy9 + 0 + (i + 0*nx)*9]+g[nxy9 + 1 + (i + 0*nx)*9]+g[nxy9 + 3 + (i + 0*nx)*9]+g[nxy9 + 4 + (i + 0*nx)*9]+g[nxy9 + 7 + (i + 0*nx)*9]+g[nxy9 + 8 + (i + 0*nx)*9];
+    g[nxy9 + 2 + (i + 0*nx)*9]= weights[2] * 6.0 * (walltemp - sumOfRest);
+    g[nxy9 + 5 + (i + 0*nx)*9]= weights[5] * 6.0 * (walltemp - sumOfRest);
+    g[nxy9 + 6 + (i + 0*nx)*9]= weights[6] * 6.0 * (walltemp - sumOfRest);
 
-    ux = 0;
-    // uy = -1+(f[nxy9 + 0 + (i + (ny-1)*nx)*9] + f[nxy9 + 1 + (i + (ny-1)*nx)*9] + f[nxy9 + 3 + (i + (ny-1)*nx)*9] + 2.0 * (f[nxy9 + 2 + (i + (ny-1)*nx)*9] + f[nxy9 + 5 + (i + (ny-1)*nx)*9] + f[nxy9 + 6 + (i + (ny-1)*nx)*9]))/denseUpper;
-    uy = 0;
-    // ux = uv[(i + (ny-1)*nx)*2 + 0];
-    // uy = uv[(i + (ny-1)*nx)*2 + 1];
-    dense = rhot[nxy1*2 + 1];
-    // dense = rhog;
-    // dense = f[nxy9 + 0 + (i + (ny-1)*nx)*9] + f[nxy9 + 1 + (i + (ny-1)*nx)*9] + f[nxy9 + 3 + (i + (ny-1)*nx)*9] + 2.0 * (f[nxy9 + 2 + (i + (ny-1)*nx)*9] + f[nxy9 + 5 + (i + (ny-1)*nx)*9] + f[nxy9 + 6 + (i + (ny-1)*nx)*9]);
-    f[nxy9 + 4 + (i + (ny-1)*nx)*9]=f[nxy9 + 2 + (i + (ny-1)*nx)*9] - (2.0 * dense * uy)/3.0;
-    f[nxy9 + 7 + (i + (ny-1)*nx)*9]=f[nxy9 + 5 + (i + (ny-1)*nx)*9] + (f[nxy9 + 1 + (i + (ny-1)*nx)*9] - f[nxy9 + 3 + (i + (ny-1)*nx)*9])/2.0 - 0.5 * dense * ux - (1.0/6.0) * dense * uy;
-    f[nxy9 + 8 + (i + (ny-1)*nx)*9]=f[nxy9 + 6 + (i + (ny-1)*nx)*9] + (f[nxy9 + 3 + (i + (ny-1)*nx)*9] - f[nxy9 + 1 + (i + (ny-1)*nx)*9])/2.0 + 0.5 * dense * ux - (1.0/6.0) * dense * uy;
 
-    // ux = 0;
-    // uy = 0;
-    // ux = uv[(i + (ny-1)*nx)*2 + 0];
-    // uy = uv[(i + (ny-1)*nx)*2 + 1];
-    // temp = rhot[nxy1 + i + (ny-1)*nx];
-    temp = initTr * (0.0778*a)/(0.45724*b*R);
-    g[nxy9 + 4 + (i + (ny-1)*nx)*9]=g[nxy9 + 4 + (i + (ny-1)*nx)*9] - (2.0 * temp * uyUpper)/3.0;
-    g[nxy9 + 7 + (i + (ny-1)*nx)*9]=g[nxy9 + 7 + (i + (ny-1)*nx)*9] + (g[nxy9 + 1 + (i + (ny-1)*nx)*9] - g[nxy9 + 3 + (i + (ny-1)*nx)*9])/2.0 - (1.0/6.0) * temp * uyUpper;
-    g[nxy9 + 8 + (i + (ny-1)*nx)*9]=g[nxy9 + 8 + (i + (ny-1)*nx)*9] + (g[nxy9 + 3 + (i + (ny-1)*nx)*9] - g[nxy9 + 1 + (i + (ny-1)*nx)*9])/2.0 - (1.0/6.0) * temp * uyUpper;
-    // g[nxy9 + 4 + (i + (ny-1)*nx)*9]=g[nxy9 + 4 + (i + (ny-1)*nx)*9];
-    // g[nxy9 + 7 + (i + (ny-1)*nx)*9]=g[nxy9 + 7 + (i + (ny-1)*nx)*9] + (g[nxy9 + 1 + (i + (ny-1)*nx)*9] - g[nxy9 + 3 + (i + (ny-1)*nx)*9])/2.0 ;
-    // g[nxy9 + 8 + (i + (ny-1)*nx)*9]=g[nxy9 + 8 + (i + (ny-1)*nx)*9] + (g[nxy9 + 3 + (i + (ny-1)*nx)*9] - g[nxy9 + 1 + (i + (ny-1)*nx)*9])/2.0 ;
-    // for(k = 0; k < 9; k++)
-    // {
-    //     g[nxy9 + k + (i + (ny-1)*nx)*9] = g[nxy9 + k + (i + (ny-2)*nx)*9];
-    // }
-    // g[nxy9 + 4 + (i + (ny-1)*nx)*9] = 
-    // g[nxy9 + 7 + (i + (ny-1)*nx)*9] = 
-    // g[nxy9 + 8 + (i + (ny-1)*nx)*9] = 
-    // g[nxy9 + 4 + (i + (ny-1)*nx)*9] = -g[nxy9 + 2 + (i + (ny-2)*nx)*9] + walltemp * weights[4] * 2.0;
-    // g[nxy9 + 7 + (i + (ny-1)*nx)*9] = -g[nxy9 + 5 + ((i-1+nx)%(uint)nx + (ny-2)*nx)*9] + walltemp * weights[7] * 2.0;
-    // g[nxy9 + 8 + (i + (ny-1)*nx)*9] = -g[nxy9 + 6 + ((i+1+nx)%(uint)nx + (ny-2)*nx)*9] + walltemp * weights[8] * 2.0;
+    f[nxy9 + 4 + (i + (ny-1)*nx)*9]=f[nxy9 + 2 + (i + (ny-1)*nx)*9];
+    f[nxy9 + 7 + (i + (ny-1)*nx)*9]=f[nxy9 + 5 + (i + (ny-1)*nx)*9] + (f[nxy9 + 1 + (i + (ny-1)*nx)*9] - f[nxy9 + 3 + (i + (ny-1)*nx)*9])/2.0;
+    f[nxy9 + 8 + (i + (ny-1)*nx)*9]=f[nxy9 + 6 + (i + (ny-1)*nx)*9] + (f[nxy9 + 3 + (i + (ny-1)*nx)*9] - f[nxy9 + 1 + (i + (ny-1)*nx)*9])/2.0;
+
+    temp = initTr * Tc;
+    sumOfRest = g[nxy9 + 0 + (i + (ny-1)*nx)*9]+g[nxy9 + 1 + (i + (ny-1)*nx)*9]+g[nxy9 + 2 + (i + (ny-1)*nx)*9]+g[nxy9 + 3 + (i + (ny-1)*nx)*9]+g[nxy9 + 5 + (i + (ny-1)*nx)*9]+g[nxy9 + 6 + (i + (ny-1)*nx)*9];
+    g[nxy9 + 4 + (i + (ny-1)*nx)*9]=weights[4] * 6.0 * (temp - sumOfRest);
+    g[nxy9 + 7 + (i + (ny-1)*nx)*9]=weights[7] * 6.0 * (temp - sumOfRest);
+    g[nxy9 + 8 + (i + (ny-1)*nx)*9]=weights[8] * 6.0 * (temp - sumOfRest);
 }
